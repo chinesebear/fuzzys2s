@@ -2,7 +2,7 @@ from torch import nn
 import torch
 import datetime
 from loguru import logger
-from model import FNN
+from model import FNN,RFNN
 from loaddata import read_data,fcm
 from setting import options, setting_info
 
@@ -22,7 +22,8 @@ def valid(model, valid_data):
     for features, target in valid_data:
         x = torch.tensor(features).to(options.device)
         target = torch.tensor(target).to(options.device)
-        output = model(x)
+        memory = torch.ones(options.rule_num).to(options.device)
+        output,_ = model(x,memory)
         loss = criterion(output, target)
         output = softmax(output)
         predict = torch.argmax(output, dim = -1)
@@ -37,7 +38,7 @@ def train():
     head,train_data, train_len,valid_data, valid_len, test_data, test_len= read_data()
     center,sigma = fcm(train_data, cluster_num= options.cluster_num, h= options.h)
     # center,sigma = "",""
-    fnn = FNN(options.feature_num, options.rule_num, center,sigma ).to(options.device)
+    fnn = RFNN(options.feature_num, options.rule_num, center,sigma ).to(options.device)
     optimizer = torch.optim.Adam(fnn.parameters(), lr=options.learning_rate, weight_decay=0)
     criterion = nn.CrossEntropyLoss()
     model_info(fnn)
@@ -51,7 +52,8 @@ def train():
             optimizer.zero_grad()
             x = torch.tensor(features).to(options.device)
             target = torch.tensor(target).to(options.device)
-            output = fnn(x)
+            memory = torch.ones(options.rule_num).to(options.device)
+            output,_ = fnn(x, memory)
             loss = criterion(output, target)
             loss.backward()
             optimizer.step()
@@ -68,3 +70,20 @@ def train():
                 #     print('-->grad_requirs:',parms.requires_grad)
                 #     print('-->grad_value:',parms.grad)
 train()
+
+# def load_seq_data():
+#     eos = torch.tensor([0])
+#     bos = torch.tensor([1])
+#     data = torch.randint(2,10, (1000, 10))
+#     for d in data:
+#         src = d
+#         tgt = d
+#         src_with_eos = torch.cat((d, eos), 0)
+#         tgt_with_bos = torch.cat((bos,d), 0)
+#         tgt_with_eos = torch.cat((d, eos), 0)
+#     return
+
+
+# load_seq_data()
+
+
