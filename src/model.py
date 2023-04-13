@@ -104,14 +104,18 @@ class MLP(nn.Module):
         self.relu2 = nn.ReLU()
         self.drop_out2= nn.Dropout(0.1)
         self.fc3 = nn.Linear( feature_out *4, feature_out)
+        self.relu3 = nn.ReLU()
+        self.drop_out3= nn.Dropout(0.1)
     def forward(self, x):
         input = self.fc(x)
-        input = self.relu(input)
-        input = self.drop_out(input)
+        # input = self.relu(input)
+        # input = self.drop_out(input)
         input = self.fc2(input)
-        input = self.relu2(input)
-        input = self.drop_out2(input)
+        # input = self.relu2(input)
+        # input = self.drop_out2(input)
         output = self.fc3(input)
+        # input = self.relu3(input)
+        # output = self.drop_out3(input)
         return output
 
 class RFNN(nn.Module):
@@ -121,22 +125,25 @@ class RFNN(nn.Module):
         self.sigma = nn.Parameter(sigma)
         self.rule_num = rule_num
         self.feature_num = feature_in
-        # self.softmax = nn.Softmax(dim=-1)
-        # self.recurrent_weight = nn.Parameter(torch.randn(rule_num))
-        # self.recurrent_bias = nn.Parameter(torch.randn(rule_num*feature_in))
-        # self.fc = nn.Linear(rule_num, rule_num* feature_in)
     def fuzzy_layer(self, x):
-        delta = x - self.center # torch tensor broadcast
-        value = torch.square(torch.div(delta , self.sigma))
+        # delta = x - self.center # torch tensor broadcast
+        # value = torch.square(torch.div(delta , self.sigma))
+        # membership = torch.exp(-(value /2))
+        x_arr =  x.repeat(1, self.rule_num).view(-1, self.feature_num).to(options.device)
+        value = torch.square(torch.div((x_arr-self.center) , self.sigma))
         membership = torch.exp(-(value /2))
         return membership
     def fire_layer(self,membership, recurrent_connection):
         # membership array
         # rule_num * feature_num
-        recurrent_connection = recurrent_connection.view(-1, 1)
-        membership = membership + recurrent_connection #
-        products = torch.prod(membership, 1)
-        return products.float()
+        # recurrent_connection = recurrent_connection.view(-1, 1)
+        # membership = membership + recurrent_connection #
+        # products = torch.prod(membership, 1)
+        # return products.float()
+        memeory = recurrent_connection.view(-1,1).repeat(1,self.feature_num)
+        membership = membership + memeory
+        rule = torch.prod(membership, 1)
+        return rule.float()
     def norm_layer(self, products):
         sum = torch.sum(products)
         if sum.item() == 0:
@@ -145,9 +152,6 @@ class RFNN(nn.Module):
         products = products/sum
         return products
     def emit_layer(self, products):
-        # f_x = torch.mul(self.consequent_weight , x)
-        # sum = torch.sum(f_x) + self.consequent_bias # torch tensor broadcast
-        # sum = sum.view(-1)
         output = self.fc(products)
         return output
     def forward(self, x, memory):
@@ -181,14 +185,14 @@ class RFS_Decoder(nn.Module):
         self.feature_num = feature_in
         self.feature_out = feature_out
         self.rfs_block = RFNN(feature_in, rule_num, center, sigma)
-        # self.fc = nn.Linear(rule_num,feature_out)
-        self.mlp = MLP(rule_num, feature_out)
+        self.mlp = nn.Linear(rule_num,feature_out)
+        # self.mlp = MLP(rule_num, feature_out)
     def forward(self, tgt, memory):
         output = torch.tensor([]).view(-1, self.feature_out).to(options.device)
         for x in tgt:
             memory = self.rfs_block(x, memory)
-            fc_out = self.mlp(memory).view(1,-1)
-            output = torch.cat((output, fc_out),0)
+            data = self.mlp(memory).view(1,-1)
+            output = torch.cat((output, data),0)
         return output
 
 class FuzzyS2S(nn.Module):

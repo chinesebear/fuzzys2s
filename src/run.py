@@ -141,9 +141,12 @@ def valid(model, valid_data, vocab_src, vocab_tgt):
     softmax = nn.Softmax(dim=-1)
     criterion = nn.CrossEntropyLoss()
     for src, tgt in valid_data:
-        src_with_eos = torch.tensor(gen_sen_feature_map_with_rescaling(vocab_src, del_sos(src))).to(options.device)
-        tgt_with_sos = torch.tensor(gen_sen_feature_map_with_rescaling(vocab_tgt, del_sos(tgt))).to(options.device)
-        tgt_with_eos = torch.tensor(del_sos(tgt)).to(options.device)
+        src_with_eos = del_sos(src)
+        tgt_with_sos = del_eos(tgt)
+        tgt_with_eos = del_sos(tgt)
+        src_with_eos = torch.tensor(gen_sen_feature_map_with_rescaling(vocab_src, src_with_eos)).to(options.device)
+        tgt_with_sos = torch.tensor(gen_sen_feature_map_with_rescaling(vocab_tgt, tgt_with_sos)).to(options.device)
+        tgt_with_eos = torch.tensor(tgt_with_eos).to(options.device)
         output = model(src_with_eos, tgt_with_sos)
         loss = criterion(output, tgt_with_eos)
         output = softmax(output)
@@ -174,9 +177,12 @@ def s2s_task():
         count = 0
         total_loss = 0
         for src, tgt in train_data:
-            src_with_eos = torch.tensor(gen_sen_feature_map_with_rescaling(vocab_src, del_sos(src))).to(options.device)
-            tgt_with_sos = torch.tensor(gen_sen_feature_map_with_rescaling(vocab_tgt, del_eos(tgt))).to(options.device)
-            tgt_with_eos = torch.tensor(del_sos(tgt)).to(options.device)
+            src_with_eos = del_sos(src)
+            tgt_with_sos = del_eos(tgt)
+            tgt_with_eos = del_sos(tgt)
+            src_with_eos = torch.tensor(gen_sen_feature_map_with_rescaling(vocab_src, src_with_eos)).to(options.device)
+            tgt_with_sos = torch.tensor(gen_sen_feature_map_with_rescaling(vocab_tgt, tgt_with_sos)).to(options.device)
+            tgt_with_eos = torch.tensor(tgt_with_eos).to(options.device)
             optimizer.zero_grad()
             output = model(src_with_eos, tgt_with_sos)
             loss = criterion(output, tgt_with_eos)
@@ -199,7 +205,7 @@ def s2s_task():
                 #     #
                 #     # decoder.fc.weight
                 #     # decoder.fc.bias
-                #     if name == "decoder.fc.weight" or name == "decoder.fc.bias":
+                #     if name == "decoder.mlp.fc.weight":
                 #         print('-->name:', name)
                 #         # print('-->para:', parms)
                 #         print('-->grad_requirs:',parms.requires_grad)
