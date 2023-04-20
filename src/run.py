@@ -143,6 +143,10 @@ def loadmodel(model, file):
         model.load_state_dict(torch.load(options.model_parameter_path+file+".pth"))
         model.eval()
         logger.info("load %s model parameters done." %(file))
+def tensor2string(input_lang, source):
+   output =  [input_lang.index2word[idx.item()] for idx in source]
+   outstr = ''.join(x + ' ' for x in output)
+   return outstr
 
 # def valid(model, valid_data, vocab_src, vocab_tgt):
 #     count = 0
@@ -222,6 +226,44 @@ def loadmodel(model, file):
 #                 #         print('-->grad_requirs:',parms.requires_grad)
 #                 #         print('-->grad_value:',parms.grad)
 
+def predict_trans(model, test_data, vocab_src, vocab_tgt):
+    count = 0
+    total_acc = 0
+    total_bleu = 0
+    total_loss = 0
+    softmax = nn.Softmax(dim=-1)
+    criterion = nn.CrossEntropyLoss()
+    for src, tgt in test_data:
+        if len(src) > options.sen_len_max or len(tgt) > options.sen_len_max:
+                continue
+        if len(src) == 7 or len(src) == 7:
+                continue
+        src_with_eos = attach_eos(src)
+        tgt_with_sos = torch.tensor([options.SOS]).to(options.device)
+        tgt_with_eos = attach_eos(tgt)
+        tgt_len = len(tgt_with_eos)
+        output = 0
+        for i in range(tgt_len):
+            output = model(src_with_eos, tgt_with_sos).squeeze()
+            _, indices = torch.max(softmax(output), dim=-1)
+            indices = indices.view(-1,1)
+            tgt_with_sos = torch.cat((tgt_with_sos,indices[i]), dim= -1)
+        predict = tgt_with_sos[1:]
+        loss = criterion(output, tgt_with_eos)
+        output = softmax(output)
+        acc , bleu = evaluate(output , tgt_with_eos, len(tgt_with_eos))
+        count = count+ 1
+        total_loss =total_loss + loss.item()
+        total_acc = total_acc +acc
+        total_bleu = total_bleu + bleu
+        if count % int(len(test_data)/10) == 0 :
+            logger.info("------------------------------------------------------------%s---------------------------------------------------------------------"%(model.name))
+            logger.info("[source ] %s" %(tensor2string(vocab_src,src_with_eos)))
+            logger.info("[target ] %s" %(tensor2string(vocab_tgt,tgt_with_eos)))
+            logger.info("[predict] %s" %(tensor2string(vocab_tgt,predict)))
+    return total_loss/count, total_acc/count,total_bleu/count
+
+
 def valid_trans(model, valid_data, vocab_src, vocab_tgt):
     count = 0
     total_acc = 0
@@ -297,6 +339,8 @@ def trans_task():
                 #         print('-->grad_requirs:',parms.requires_grad)
                 #         print('-->grad_value:',parms.grad)
     savemodel(model, model.name + '-' +dataset_name)
+    test_loss, acc, bleu = predict_trans(model, test_data, vocab_src, vocab_tgt)
+    logger.info("[%s]test loss: %.4f, acc: %.4f, bleu:%.4f" %(model.name, test_loss,acc, bleu))
 
 
 trans_task()
