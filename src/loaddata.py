@@ -6,8 +6,11 @@ import json
 from torchtext.data import get_tokenizer
 from loguru import logger
 from setting import options,Options
-
-feature_options = Options("token feature")
+from datasets import load_dataset
+from tokenizers import Tokenizer
+from tokenizers.models import BPE,WordPiece,Unigram
+from tokenizers.pre_tokenizers import Whitespace
+from tokenizers.trainers import BpeTrainer,WordPieceTrainer, UnigramTrainer
 
 def tokenizer(sentence):
     tokenizer = get_tokenizer("basic_english")
@@ -43,40 +46,16 @@ class Vocab:
         else:
             self.word2count[word] += 1
 
-# map range: [low, high]
-def rescaling(vocab, token_features, low_limit, high_limit):
-    col_max= vocab.feature_max # max of col
-    col_min= vocab.feature_min # min of col
-    token_features = token_features.float()
-    for i in range(len(token_features)): # feature
-        feature = token_features[i]
-        val = low_limit + (feature - col_min[i])*(high_limit-low_limit) /(col_max[i] - col_min[i])
-        token_features[i] = val
-    return token_features.tolist()
-
-
 def gen_sen_feature_map(vocab, sentence):
-    sen_feature_list = []
+    slen = len(sentence)
+    HF = 0 # high frequency token count
     for i in range(len(sentence)):
         token_idx = sentence[i]
         word = vocab.index2word[token_idx]
-        feature_word_value = token_idx
-        feature_word_position = i
-        feature_word_size = len(word)
-        feature_word_fequency = vocab.word2count[word]
-        feature_list = [feature_word_value, feature_word_position, feature_word_size, feature_word_fequency]
-        sen_feature_list.append(feature_list)
-    return sen_feature_list
-
-def gen_sen_feature_map_with_rescaling(vocab, sentence):
-    sen_feature_list = gen_sen_feature_map(vocab, sentence)
-    for i in range(len(sen_feature_list)):
-        token_features = torch.tensor(sen_feature_list[i]).to(options.device)
-        token_feature_tensor = rescaling(vocab, token_features, 0, 1)
-        sen_feature_list[i] = token_feature_tensor
-    return sen_feature_list
-
-
+        count = vocab.word2count[word]
+        if count > options.high_freq_limit:
+            HF = HF + 1
+    return [slen, HF]
 
 def build_vocab(vocab_src, vocab_tgt, tokens):
     for sentence in tokens:
@@ -90,19 +69,13 @@ def build_vocab(vocab_src, vocab_tgt, tokens):
             vocab_tgt.line_max = len(tgt)
     return vocab_src, vocab_tgt
 
-def del_eos(sentence):
-    return sentence[:-1]
-
-def del_sos(sentence):
-    return sentence[1:]
-
 def attach_eos(sentence):
     sentence = sentence + [options.EOS]
-    return sentence
+    return torch.tensor(sentence).to(options.device)
 
 def insert_sos(sentence):
     sentence = [options.SOS] + sentence
-    return sentence
+    return torch.tensor(sentence).to(options.device)
 
 def gen_token_vectors(vocab_src, vocab_tgt, tokens):
     token_vectors =[]
@@ -112,80 +85,11 @@ def gen_token_vectors(vocab_src, vocab_tgt, tokens):
         token_vectors.append([src, tgt])
     return token_vectors
 
-def get_feature_max_min_val(token_feature_map_src, token_feature_map_tgt, vocab_src, vocab_tgt):
-    src_col_max,_ = torch.max(token_feature_map_src,0) # max of col
-    src_col_min,_ = torch.min(token_feature_map_src,0) # min of col
-    tgt_col_max,_ = torch.max(token_feature_map_tgt,0) # max of col
-    tgt_col_min,_ = torch.min(token_feature_map_tgt,0) # min of col
-    vocab_src.feature_max = src_col_max
-    vocab_src.feature_min = src_col_min
-    vocab_tgt.feature_max = tgt_col_max
-    vocab_tgt.feature_min = tgt_col_min
-
-def combine_token_feature_map(train_data, valid_data, test_data, vocab_src, vocab_tgt):
-    data = train_data + valid_data + test_data
-    token_feature_map_src = torch.randn(len(data)*vocab_src.line_max, options.feature_num).long().tolist()
-    token_feature_map_tgt = torch.randn(len(data)*vocab_tgt.line_max, options.feature_num).long().tolist()
-    src_count = 0
-    tgt_count = 0
-    for d in data:
-        src = gen_sen_feature_map(vocab_src, d[0])
-        tgt = gen_sen_feature_map(vocab_tgt, d[1])
-        for feature in src:
-            token_feature_map_src[src_count] = feature
-            src_count = src_count + 1
-        for feature in tgt:
-            token_feature_map_tgt[tgt_count] = feature
-            tgt_count = tgt_count + 1
-    token_feature_map_src = token_feature_map_src[:src_count]
-    token_feature_map_tgt = token_feature_map_tgt[:tgt_count]
-    token_feature_map_src = torch.tensor(token_feature_map_src).float()
-    token_feature_map_tgt = torch.tensor(token_feature_map_tgt).float()
-    get_feature_max_min_val(token_feature_map_src, token_feature_map_tgt, vocab_src, vocab_tgt)
-    for i in range(len(token_feature_map_src)):
-        token_features = token_feature_map_src[i]
-        token_feature_map_src[i] = torch.tensor(rescaling(vocab_src, token_features, 0,1))
-    for i in range(len(token_feature_map_tgt)):
-        token_features = token_feature_map_tgt[i]
-        token_feature_map_src[i] = torch.tensor(rescaling(vocab_tgt, token_features, 0,1))
-    return token_feature_map_src, token_feature_map_tgt
-
-def fcm(data, cluster_num, h):
-    logger.info("fcm clustering...")
-    feature_num = len(data[0])
-    fcm = FCM(n_clusters=cluster_num)
-    data = data.view(-1, feature_num)
-    data = np.array(data)
-    fcm.fit(data)
-    centers = fcm.centers.tolist()
-    logger.info("cluster center: %d" %(len(centers)))
-    membership = fcm.soft_predict(data)
-
-    data_num = len(data)
-    sigma = []
-    for i in range(cluster_num):
-        feature_sigma = []
-        for j in range(feature_num):
-            a = 0
-            b = 0
-            for k in  range(data_num):
-                x = data[k][j]
-                a = a + membership[k][i]* ((x-centers[i][j]) ** 2)
-                b = b + membership[k][i]
-            feature_sigma.append(h*a/b)
-        sigma.append(feature_sigma)
-    logger.info("cluster sigma: %d" %(len(sigma)))
-    # print("centers:",centers )
-    # print("sigma:", sigma)
-    centers_tensor = torch.tensor(centers, requires_grad=True).to(options.device)
-    sigma_tensor = torch.tensor(sigma, requires_grad=True).to(options.device)
-    return centers_tensor,sigma_tensor
-
 def read_file(path):
     fd = open(path,encoding = "utf-8")
-    raw_data = json.loads(fd.read())
-    logger.info("dataset:%s, split:%s, cofig:%s" %(raw_data['dataset'],raw_data['split'],raw_data['config']))
-    raw_lines = raw_data['rows']
+    raw_lines = json.loads(fd.read())
+    logger.info("dataset:%s, split:%s, cofig:%s" %(raw_lines['dataset'],raw_lines['split'],raw_lines['config']))
+    raw_lines = raw_lines['rows']
     tokens = []
     for line in raw_lines:
         src = line['row']['translation']['en']
@@ -197,12 +101,103 @@ def read_file(path):
         tokens.append([src, tgt])
     fd.close()
     return tokens
+def train_tokenizer(dataset,src_lang, tgt_lang, trainer,tokenizer):
+    train_len = 10000 # dataset['train'].num_rows
+    test_len = 100 # dataset['test'].num_rows
+    valid_len = 100 # dataset['validation'].num_rows
+    raw_lines = np.empty([train_len + test_len + valid_len], dtype = int).tolist()
+    train_iter = iter(dataset['train'])
+    offset = 0
+    for i in range(train_len):
+        data = next(train_iter)
+        src = data['translation'][src_lang]
+        tgt = data['translation'][tgt_lang]
+        raw_lines[i + offset] = src +' '+tgt
+    test_iter = iter(dataset['test'])
+    offset = offset + train_len
+    for i in range(test_len):
+        data = next(test_iter)
+        src = data['translation'][src_lang]
+        tgt = data['translation'][tgt_lang]
+        raw_lines[i + offset] = src +' '+tgt
+    valid_iter = iter(dataset['validation'])
+    offset = offset + test_len
+    for i in range(valid_len):
+        data = next(valid_iter)
+        src = data['translation'][src_lang]
+        tgt = data['translation'][tgt_lang]
+        raw_lines[i + offset] = src +' '+tgt
+    tokenizer.train_from_iterator(raw_lines, trainer=trainer)
+
+def read_raw_tokens(dataset, src_lang, tgt_lang,tokenizer):
+    train_len = 10000 # dataset['train'].num_rows
+    test_len = 100 # dataset['test'].num_rows
+    valid_len = 100 # dataset['validation'].num_rows
+    train_raw_tokens = np.empty([train_len], dtype=int).tolist()
+    train_iter = iter(dataset['train'])
+    for i in range(train_len):
+        data = next(train_iter)
+        src = data['translation'][src_lang]
+        tgt = data['translation'][tgt_lang]
+        src = tokenizer.encode(src).tokens
+        tgt = tokenizer.encode(tgt).tokens
+        train_raw_tokens[i] = [src, tgt]
+    test_raw_tokens = np.empty([test_len], dtype=int).tolist()
+    test_iter = iter(dataset['test'])
+    for i in range(test_len):
+        data = next(test_iter)
+        src = data['translation'][src_lang]
+        tgt = data['translation'][tgt_lang]
+        src = tokenizer.encode(src).tokens
+        tgt = tokenizer.encode(tgt).tokens
+        test_raw_tokens[i] = [src, tgt]
+    valid_raw_tokens = np.empty([test_len], dtype=int).tolist()
+    valid_iter = iter(dataset['validation'])
+    for i in range(valid_len):
+        data = next(valid_iter)
+        src = data['translation'][src_lang]
+        tgt = data['translation'][tgt_lang]
+        src = tokenizer.encode(src).tokens
+        tgt = tokenizer.encode(tgt).tokens
+        valid_raw_tokens[i] = [src, tgt]
+    return train_raw_tokens, test_raw_tokens, valid_raw_tokens
 
 def read_wmt14_data():
+    logger.info("train tokenizer")
+    src_lang = 'en'
+    tgt_lang = 'fr'
+    dataset = load_dataset('wmt14', 'fr-en')
+    tokenizer = Tokenizer(Unigram())
+    tokenizer.pre_tokenizer = Whitespace()
+    trainer = UnigramTrainer(special_tokens=["[UNK]", "[CLS]", "[SEP]", "[PAD]", "[MASK]"])
+    train_tokenizer(dataset, src_lang, tgt_lang, trainer, tokenizer)
+    logger.info("read raw tokens")
+    train_tokens, test_tokens,valid_tokens = read_raw_tokens(dataset, src_lang, tgt_lang,tokenizer)
+    logger.info("build vocabulary")
+    vocab_src = Vocab("src en")
+    vocab_tgt = Vocab("tgt fr")
+    build_vocab(vocab_src, vocab_tgt, train_tokens)
+    build_vocab(vocab_src, vocab_tgt, valid_tokens)
+    build_vocab(vocab_src, vocab_tgt, test_tokens)
+    logger.info("src vocab name:%s, size:%d" %(vocab_src.name, vocab_src.n_words))
+    logger.info("tgt vocab name:%s, size:%d" %(vocab_tgt.name, vocab_tgt.n_words))
+    logger.info("generate token vectors")
+    train_data = gen_token_vectors(vocab_src, vocab_tgt, train_tokens)
+    valid_data = gen_token_vectors(vocab_src, vocab_tgt, valid_tokens)
+    test_data = gen_token_vectors(vocab_src, vocab_tgt, test_tokens)
+    return train_data, valid_data, test_data, vocab_src, vocab_tgt
+
+def read_opus100_data():
+    logger.info("train tokenizer")
+    src_lang = 'en'
+    tgt_lang = 'fr'
+    dataset = load_dataset('opus100', 'en-fr')
+    tokenizer = Tokenizer(Unigram())
+    tokenizer.pre_tokenizer = Whitespace()
+    trainer = UnigramTrainer(special_tokens=["[UNK]", "[CLS]", "[SEP]", "[PAD]", "[MASK]"])
+    train_tokenizer(dataset, src_lang, tgt_lang, trainer, tokenizer)
     logger.info("read raw data")
-    train_tokens = read_file(options.base_path+"/doc/wmt14/wmt14-fr-en-train.json")
-    valid_tokens = read_file(options.base_path+"/doc/wmt14/wmt14-fr-en-valid.json")
-    test_tokens = read_file(options.base_path+"/doc/wmt14/wmt14-fr-en-test.json")
+    train_tokens, test_tokens,valid_tokens = read_raw_tokens(dataset, src_lang, tgt_lang,tokenizer)
     logger.info("build vocabulary")
     vocab_src = Vocab("src en")
     vocab_tgt = Vocab("tgt fr")
@@ -284,5 +279,37 @@ def read_data(dataset):
         return read_tatoeba_data()
     elif dataset == "copy":
         return read_copy_data()
+    elif dataset == 'opus100':
+        return read_opus100_data()
 
 
+def fcm(data, cluster_num, h):
+    logger.info("fcm clustering...")
+    feature_num = len(data[0])
+    fcm = FCM(n_clusters=cluster_num)
+    data = data.view(-1, feature_num)
+    data = np.array(data)
+    fcm.fit(data)
+    centers = fcm.centers.tolist()
+    logger.info("cluster center: %d" %(len(centers)))
+    membership = fcm.soft_predict(data)
+
+    data_num = len(data)
+    sigma = []
+    for i in range(cluster_num):
+        feature_sigma = []
+        for j in range(feature_num):
+            a = 0
+            b = 0
+            for k in  range(data_num):
+                x = data[k][j]
+                a = a + membership[k][i]* ((x-centers[i][j]) ** 2)
+                b = b + membership[k][i]
+            feature_sigma.append(h*a/b)
+        sigma.append(feature_sigma)
+    logger.info("cluster sigma: %d" %(len(sigma)))
+    # print("centers:",centers )
+    # print("sigma:", sigma)
+    centers_tensor = torch.tensor(centers, requires_grad=True).to(options.device)
+    sigma_tensor = torch.tensor(sigma, requires_grad=True).to(options.device)
+    return centers_tensor,sigma_tensor

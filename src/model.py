@@ -46,20 +46,15 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:x.size(0), :]
         return self.dropout(x)
 
-class TransformerModel(nn.Module):
+class TransEncoder(nn.Module):
     def __init__(self, ntoken, ninp, nhead, nhid, nlayers, dropout=0.1):
-        super(TransformerModel, self).__init__()
-        self.model_type = 'Transformer'
+        super(TransEncoder, self).__init__()
+        self.name = "transencoder"
         self.ninp = ninp
-        self.src_mask = None
         self.embedding = nn.Embedding(num_embeddings=ntoken, embedding_dim=ninp)
         self.pos_encoder = PositionalEncoding(ninp, dropout)
         encoder_layers = nn.TransformerEncoderLayer(d_model=ninp, nhead=nhead, dim_feedforward=nhid, dropout=dropout)
-        decoder_layer = nn.TransformerDecoderLayer(d_model=ninp, nhead=nhead,dim_feedforward=nhid, dropout=dropout)
         self.encoder = nn.TransformerEncoder(encoder_layer=encoder_layers, num_layers=nlayers)
-        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=nlayers)
-        self.linear = nn.Linear(ninp, ntoken)
-        self.softmax = nn.Softmax(-1)
         self.init_weights()
     def _generate_square_subsequent_mask(self, sz):
         mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1).to(options.device)
@@ -68,82 +63,71 @@ class TransformerModel(nn.Module):
     def init_weights(self):
         initrange = 0.1
         self.embedding.weight.data.uniform_(-initrange, initrange)
-    def forward(self, src, tgt, src_mask, tgt_mask):
+    def forward(self, src):
+        src_mask = self._generate_square_subsequent_mask(len(src))
         src = src.view(-1,1)
         src = self.embedding(src) * (math.sqrt(self.ninp))
         src = self.pos_encoder(src)
-        tgt = tgt.view(-1,1)
-        tgt = self.embedding(tgt) * (math.sqrt(self.ninp))
-        tgt = self.pos_encoder(tgt)
         memory = self.encoder(src, src_mask) # seq_len* batch* embedding_dim
-        output = self.decoder(tgt, memory, tgt_mask)
-        output = self.linear(output)
+        output = memory
         return output
-    def Encoder(self, src, src_mask):
-        src = src.view(-1,1)
-        src = self.embedding(src) * (math.sqrt(self.ninp))
-        src = self.pos_encoder(src)
-        memory = self.encoder(src, src_mask)
-        return memory
-    def Decoder(self, tgt, memory, tgt_mask):
+
+class TransDecoder(nn.Module):
+    def __init__(self, ntoken, ninp, nhead, nhid, nlayers, dropout=0.1):
+        super(TransDecoder, self).__init__()
+        self.name = "transdecoder"
+        self.ninp = ninp
+        self.embedding = nn.Embedding(num_embeddings=ntoken, embedding_dim=ninp)
+        self.pos_encoder = PositionalEncoding(ninp, dropout)
+        decoder_layers = nn.TransformerDecoderLayer(d_model=ninp, nhead=nhead, dim_feedforward=nhid, dropout=dropout)
+        self.decoder = nn.TransformerDecoder(decoder_layer=decoder_layers, num_layers=nlayers)
+        self.fc = nn.Linear(ninp, ntoken)
+        self.init_weights()
+    def _generate_square_subsequent_mask(self, sz):
+        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1).to(options.device)
+        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        return mask
+    def init_weights(self):
+        initrange = 0.1
+        self.embedding.weight.data.uniform_(-initrange, initrange)
+    def forward(self, tgt, memory):
+        tgt_mask = self._generate_square_subsequent_mask(len(tgt))
         tgt = tgt.view(-1,1)
         tgt = self.embedding(tgt) * (math.sqrt(self.ninp))
         tgt = self.pos_encoder(tgt)
         output = self.decoder(tgt, memory, tgt_mask)
-        output = self.linear(output)
-        output = self.softmax(output)
+        output= self.fc(output)
         return output
 
-class MLP(nn.Module):
-    def __init__(self,feature_in , feature_out):
-        super(MLP, self).__init__()
-        self.fc = nn.Linear(feature_in, feature_in * 4)
-        self.relu = nn.ReLU()
-        self.drop_out= nn.Dropout(0.1)
-        self.fc2 = nn.Linear(feature_in * 4, feature_out *4)
-        self.relu2 = nn.ReLU()
-        self.drop_out2= nn.Dropout(0.1)
-        self.fc3 = nn.Linear( feature_out *4, feature_out)
-        self.relu3 = nn.ReLU()
-        self.drop_out3= nn.Dropout(0.1)
-    def forward(self, x):
-        input = self.fc(x)
-        # input = self.relu(input)
-        # input = self.drop_out(input)
-        input = self.fc2(input)
-        # input = self.relu2(input)
-        # input = self.drop_out2(input)
-        output = self.fc3(input)
-        # input = self.relu3(input)
-        # output = self.drop_out3(input)
+
+class TransformerModel(nn.Module):
+    def __init__(self, vocab_src_size, vocab_tgt_size, ninp, nhead, nhid, nlayers, dropout=0.1):
+        super(TransformerModel, self).__init__()
+        self.name = "transformer"
+        self.encoder = TransEncoder(vocab_src_size, ninp, nhead, nhid, nlayers,dropout)
+        self.decoder = TransDecoder(vocab_tgt_size, ninp, nhead, nhid, nlayers,dropout )
+    def forward(self, src, tgt):
+        memory = self.encoder(src) # seq_len* batch* embedding_dim
+        output = self.decoder(tgt, memory)
         return output
 
-class RFNN(nn.Module):
+class FuzzySystem(nn.Module):
     def __init__(self,feature_in, rule_num, center,sigma ):
-        super(RFNN, self).__init__()
-        self.center = nn.Parameter(center)
-        self.sigma = nn.Parameter(sigma)
+        super(FuzzySystem, self).__init__()
+        self.center = center
+        self.sigma = sigma
         self.rule_num = rule_num
         self.feature_num = feature_in
     def fuzzy_layer(self, x):
-        # delta = x - self.center # torch tensor broadcast
-        # value = torch.square(torch.div(delta , self.sigma))
-        # membership = torch.exp(-(value /2))
-        x_arr =  x.repeat(1, self.rule_num).view(-1, self.feature_num).to(options.device)
-        value = torch.square(torch.div((x_arr-self.center) , self.sigma))
+        delta = x - self.center # torch tensor broadcast
+        value = torch.square(torch.div(delta , self.sigma))
         membership = torch.exp(-(value /2))
         return membership
-    def fire_layer(self,membership, recurrent_connection):
+    def fire_layer(self,membership):
         # membership array
         # rule_num * feature_num
-        # recurrent_connection = recurrent_connection.view(-1, 1)
-        # membership = membership + recurrent_connection #
-        # products = torch.prod(membership, 1)
-        # return products.float()
-        memeory = recurrent_connection.view(-1,1).repeat(1,self.feature_num)
-        membership = membership + memeory
-        rule = torch.prod(membership, 1)
-        return rule.float()
+        products = torch.prod(membership, 1)
+        return products.float()
     def norm_layer(self, products):
         sum = torch.sum(products)
         if sum.item() == 0:
@@ -151,59 +135,67 @@ class RFNN(nn.Module):
             return products
         products = products/sum
         return products
-    def emit_layer(self, products):
-        output = self.fc(products)
-        return output
-    def forward(self, x, memory):
+    def forward(self, x):
         x = x.to(options.device)
         membership = self.fuzzy_layer(x)
-        recurrent_connection = memory #torch.mul(memory,self.recurrent_weight)
-        products = self.fire_layer(membership, recurrent_connection)
+        products = self.fire_layer(membership)
         products = self.norm_layer(products)
-        # output = self.emit_layer(products)
         output = products
         return output
 
-class RFS_Encoder(nn.Module):
-    def __init__(self,feature_in, rule_num, center,sigma ):
-        super(RFS_Encoder, self).__init__()
+class FuzzyEncoder(nn.Module):
+    def __init__(self,src_vocab_size, feature_num, rule_num, center,sigma ):
+        super(FuzzyEncoder, self).__init__()
         self.rule_num = rule_num
-        self.feature_num = feature_in
-        self.rfs_block = RFNN(feature_in, rule_num, center, sigma)
-    def forward(self, src):
-        memory = torch.zeros((self.rule_num)).to(options.device)
-        for x  in src:
-            memory = self.rfs_block(x, memory)
-        output = memory
+        self.fs = FuzzySystem(feature_num, rule_num, center, sigma)
+        encoder_list = []
+        for _ in range(rule_num):
+            encoder_list.append(TransDecoder(src_vocab_size,
+                                             options.trans.embedding_dim,
+                                             options.trans.nheade,
+                                             options.trans.hidden_size,
+                                             options.trans.nlayer,
+                                             options.trans.drop_out))
+        self.encoder = nn.ModuleList(encoder_list)
+    def forward(self, src, src_features):
+        products = self.fs(src_features)
+        output = 0
+        for i in range(self.rule_num):
+            product = products[i]
+            output = output + product * self.encoder[i](src)
         return output
 
-
-class RFS_Decoder(nn.Module):
-    def __init__(self,feature_in, feature_out , rule_num, center,sigma ):
-        super(RFS_Decoder, self).__init__()
+class FuzzyDecoder(nn.Module):
+    def __init__(self,tgt_vocab_size, feature_num, rule_num, center,sigma ):
+        super(FuzzyDecoder, self).__init__()
         self.rule_num = rule_num
-        self.feature_num = feature_in
-        self.feature_out = feature_out
-        self.rfs_block = RFNN(feature_in, rule_num, center, sigma)
-        self.mlp = nn.Linear(rule_num,feature_out)
-        # self.mlp = MLP(rule_num, feature_out)
-    def forward(self, tgt, memory):
-        output = torch.tensor([]).view(-1, self.feature_out).to(options.device)
-        for x in tgt:
-            memory = self.rfs_block(x, memory)
-            data = self.mlp(memory).view(1,-1)
-            output = torch.cat((output, data),0)
+        self.feature_num = feature_num
+        self.fs = FuzzySystem(feature_num, rule_num, center, sigma)
+        decoder_list = []
+        for _ in range(rule_num):
+            decoder_list.append(TransDecoder(tgt_vocab_size,
+                                             options.trans.embedding_dim,
+                                             options.trans.nheade,
+                                             options.trans.hidden_size,
+                                             options.trans.nlayer,
+                                             options.trans.drop_out))
+        self.decoder = nn.ModuleList(decoder_list)
+    def forward(self, tgt, tgt_features, memory):
+        products = self.fs(tgt_features)
+        output = 0
+        for i in range(self.rule_num):
+            product = products[i]
+            output = output + product * self.decoder[i](tgt, memory)
         return output
 
 class FuzzyS2S(nn.Module):
-    def __init__(self,feature_in, feature_out , rule_num, src_center,src_sigma,  tgt_center, tgt_sigma):
+    def __init__(self,src_vocab_size, tgt_vocab_size , feature_num, rule_num, src_center,src_sigma,  tgt_center, tgt_sigma):
         super(FuzzyS2S, self).__init__()
+        self.name = 'fuzzys2s'
         self.rule_num = rule_num
-        self.feature_in = feature_in
-        self.feature_out = feature_out
-        self.encoder = RFS_Encoder(feature_in, rule_num, src_center, src_sigma).to(options.device)
-        self.decoder = RFS_Decoder(feature_in, feature_out, rule_num, tgt_center, tgt_sigma).to(options.device)
-    def forward(self, src, tgt):
-        memory = self.encoder(src)
-        output = self.decoder(tgt, memory)
+        self.encoder = FuzzyEncoder(src_vocab_size, feature_num, rule_num, src_center, src_sigma).to(options.device)
+        self.decoder = FuzzyDecoder(tgt_vocab_size, feature_num, rule_num, tgt_center, tgt_sigma).to(options.device)
+    def forward(self, src, src_features, tgt, tgt_features):
+        memory = self.encoder(src, src_features)
+        output = self.decoder(tgt, tgt_features, memory)
         return output

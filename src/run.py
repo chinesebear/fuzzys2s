@@ -7,8 +7,9 @@ import random
 import math
 from loguru import logger
 from model import FuzzyS2S,TransformerModel
-from loaddata import read_data,fcm, gen_sen_feature_map_with_rescaling,combine_token_feature_map,del_eos,del_sos,insert_sos,attach_eos
+from loaddata import read_data,fcm, gen_sen_feature_map,insert_sos,attach_eos
 from setting import options, setting_info
+import os
 
 def model_info(model):
     logger.info("[model info]")
@@ -133,83 +134,93 @@ def evaluate(output, target, target_len):
     bleu = calcBLEU(candidate, reference)
     return acc,bleu
 
-def valid(model, valid_data, vocab_src, vocab_tgt):
-    count = 0
-    total_acc = 0
-    total_bleu = 0
-    total_loss = 0
-    softmax = nn.Softmax(dim=-1)
-    criterion = nn.CrossEntropyLoss()
-    for src, tgt in valid_data:
-        src_with_eos = del_sos(src)
-        tgt_with_sos = del_eos(tgt)
-        tgt_with_eos = del_sos(tgt)
-        src_with_eos = torch.tensor(gen_sen_feature_map_with_rescaling(vocab_src, src_with_eos)).to(options.device)
-        tgt_with_sos = torch.tensor(gen_sen_feature_map_with_rescaling(vocab_tgt, tgt_with_sos)).to(options.device)
-        tgt_with_eos = torch.tensor(tgt_with_eos).to(options.device)
-        output = model(src_with_eos, tgt_with_sos)
-        loss = criterion(output, tgt_with_eos)
-        output = softmax(output)
-        acc , bleu = evaluate(output , tgt_with_eos, len(tgt_with_eos))
-        count = count+ 1
-        total_loss =total_loss + loss.item()
-        total_acc = total_acc +acc
-        total_bleu = total_bleu + bleu
-    return total_loss/count, total_acc/count,total_bleu/count
+def savemodel(model,file):
+    torch.save(model.state_dict(), options.model_parameter_path+file+".pth")
+    logger.info("save %s model parameters done." %(file))
 
-def s2s_task():
-    logger.add(options.base_path+'output/fuzzys2s-'+str(datetime.date.today()) +'.log')
-    setup_seed(options.seed_id)
-    train_data, valid_data, test_data, vocab_src, vocab_tgt = read_data("copy")
-    feature_in = options.feature_num
-    feature_out = vocab_tgt.n_words
-    rule_num = options.rule_num
-    token_feature_map_src, token_feature_map_tgt = combine_token_feature_map(train_data, valid_data, test_data, vocab_src, vocab_tgt)
-    logger.info("src token clustering")
-    center_src,sigma_src = fcm(token_feature_map_src, cluster_num= rule_num, h= options.h)
-    logger.info("tgt token clustering")
-    center_tgt,sigma_tgt = fcm(token_feature_map_tgt, cluster_num= rule_num, h= options.h)
-    model = FuzzyS2S(feature_in, feature_out, rule_num, center_src, sigma_src, center_tgt, sigma_tgt).to(options.device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=options.learning_rate, weight_decay=0)
-    criterion = nn.CrossEntropyLoss()
-    model_info(model)
-    for epoch in range(options.epoch):
-        count = 0
-        total_loss = 0
-        for src, tgt in train_data:
-            src_with_eos = del_sos(src)
-            tgt_with_sos = del_eos(tgt)
-            tgt_with_eos = del_sos(tgt)
-            src_with_eos = torch.tensor(gen_sen_feature_map_with_rescaling(vocab_src, src_with_eos)).to(options.device)
-            tgt_with_sos = torch.tensor(gen_sen_feature_map_with_rescaling(vocab_tgt, tgt_with_sos)).to(options.device)
-            tgt_with_eos = torch.tensor(tgt_with_eos).to(options.device)
-            optimizer.zero_grad()
-            output = model(src_with_eos, tgt_with_sos)
-            loss = criterion(output, tgt_with_eos)
-            loss.backward()
-            optimizer.step()
-            count = count+ 1
-            total_loss =total_loss + loss.item()
-            if count % 100 ==0:
-                valid_loss, acc, bleu = valid(model, valid_data,vocab_src, vocab_tgt)
-                logger.info("epoch: %d, count: %d, train loss: %.4f, valid loss: %.4f, acc: %.4f, bleu:%.4f" %(epoch, count, total_loss/count, valid_loss,acc, bleu))
+def loadmodel(model, file):
+    if os.path.exists(options.model_parameter_path+file+".pth"):
+        model.load_state_dict(torch.load(options.model_parameter_path+file+".pth"))
+        model.eval()
+        logger.info("load %s model parameters done." %(file))
 
-                # for name, parms in model.named_parameters():
-                #     # encoder.rfs_block.center
-                #     # encoder.rfs_block.sigma
-                #     # encoder.rfs_block.recurrent_weight
-                #     #
-                #     # decoder.rfs_block.center
-                #     # decoder.rfs_block.sigma
-                #     # decoder.rfs_block.recurrent_weight
-                #     #
-                #     # decoder.fc.weight
-                #     # decoder.fc.bias
-                #     if name == "decoder.mlp.fc.weight":
-                #         print('-->name:', name)
-                #         # print('-->para:', parms)
-                #         print('-->grad_requirs:',parms.requires_grad)
-                #         print('-->grad_value:',parms.grad)
+# def valid(model, valid_data, vocab_src, vocab_tgt):
+#     count = 0
+#     total_acc = 0
+#     total_bleu = 0
+#     total_loss = 0
+#     softmax = nn.Softmax(dim=-1)
+#     criterion = nn.CrossEntropyLoss()
+#     for src, tgt in valid_data:
+#         src_with_eos = del_sos(src)
+#         tgt_with_sos = del_eos(tgt)
+#         tgt_with_eos = del_sos(tgt)
+#         src_with_eos = torch.tensor(gen_sen_feature_map_with_rescaling(vocab_src, src_with_eos)).to(options.device)
+#         tgt_with_sos = torch.tensor(gen_sen_feature_map_with_rescaling(vocab_tgt, tgt_with_sos)).to(options.device)
+#         tgt_with_eos = torch.tensor(tgt_with_eos).to(options.device)
+#         output = model(src_with_eos, tgt_with_sos)
+#         loss = criterion(output, tgt_with_eos)
+#         output = softmax(output)
+#         acc , bleu = evaluate(output , tgt_with_eos, len(tgt_with_eos))
+#         count = count+ 1
+#         total_loss =total_loss + loss.item()
+#         total_acc = total_acc +acc
+#         total_bleu = total_bleu + bleu
+#     return total_loss/count, total_acc/count,total_bleu/count
+
+# def s2s_task():
+#     logger.add(options.base_path+'output/fuzzys2s-'+str(datetime.date.today()) +'.log')
+#     setup_seed(options.seed_id)
+#     train_data, valid_data, test_data, vocab_src, vocab_tgt = read_data("copy")
+#     feature_in = options.feature_num
+#     feature_out = vocab_tgt.n_words
+#     rule_num = options.rule_num
+#     token_feature_map_src, token_feature_map_tgt = combine_token_feature_map(train_data, valid_data, test_data, vocab_src, vocab_tgt)
+#     logger.info("src token clustering")
+#     center_src,sigma_src = fcm(token_feature_map_src, cluster_num= rule_num, h= options.h)
+#     logger.info("tgt token clustering")
+#     center_tgt,sigma_tgt = fcm(token_feature_map_tgt, cluster_num= rule_num, h= options.h)
+#     model = FuzzyS2S(feature_in, feature_out, rule_num, center_src, sigma_src, center_tgt, sigma_tgt).to(options.device)
+#     optimizer = torch.optim.Adam(model.parameters(), lr=options.learning_rate, weight_decay=0)
+#     criterion = nn.CrossEntropyLoss()
+#     model_info(model)
+#     for epoch in range(options.epoch):
+#         count = 0
+#         total_loss = 0
+#         for src, tgt in train_data:
+#             src_with_eos = del_sos(src)
+#             tgt_with_sos = del_eos(tgt)
+#             tgt_with_eos = del_sos(tgt)
+#             src_with_eos = torch.tensor(gen_sen_feature_map_with_rescaling(vocab_src, src_with_eos)).to(options.device)
+#             tgt_with_sos = torch.tensor(gen_sen_feature_map_with_rescaling(vocab_tgt, tgt_with_sos)).to(options.device)
+#             tgt_with_eos = torch.tensor(tgt_with_eos).to(options.device)
+#             optimizer.zero_grad()
+#             output = model(src_with_eos, tgt_with_sos)
+#             loss = criterion(output, tgt_with_eos)
+#             loss.backward()
+#             optimizer.step()
+#             count = count+ 1
+#             total_loss =total_loss + loss.item()
+#             if count % 100 ==0:
+#                 valid_loss, acc, bleu = valid(model, valid_data,vocab_src, vocab_tgt)
+#                 logger.info("epoch: %d, count: %d, train loss: %.4f, valid loss: %.4f, acc: %.4f, bleu:%.4f" %(epoch, count, total_loss/count, valid_loss,acc, bleu))
+
+#                 # for name, parms in model.named_parameters():
+#                 #     # encoder.rfs_block.center
+#                 #     # encoder.rfs_block.sigma
+#                 #     # encoder.rfs_block.recurrent_weight
+#                 #     #
+#                 #     # decoder.rfs_block.center
+#                 #     # decoder.rfs_block.sigma
+#                 #     # decoder.rfs_block.recurrent_weight
+#                 #     #
+#                 #     # decoder.fc.weight
+#                 #     # decoder.fc.bias
+#                 #     if name == "decoder.mlp.fc.weight":
+#                 #         print('-->name:', name)
+#                 #         # print('-->para:', parms)
+#                 #         print('-->grad_requirs:',parms.requires_grad)
+#                 #         print('-->grad_value:',parms.grad)
 
 def valid_trans(model, valid_data, vocab_src, vocab_tgt):
     count = 0
@@ -219,12 +230,14 @@ def valid_trans(model, valid_data, vocab_src, vocab_tgt):
     softmax = nn.Softmax(dim=-1)
     criterion = nn.CrossEntropyLoss()
     for src, tgt in valid_data:
+        if len(src) > options.sen_len_max or len(tgt) > options.sen_len_max:
+                continue
+        if len(src) == 7 or len(src) == 7:
+                continue
         src_with_eos = attach_eos(src)
         tgt_with_sos = insert_sos(tgt)
         tgt_with_eos = attach_eos(tgt)
-        src_mask = model._generate_square_subsequent_mask(len(src_with_eos))
-        tgt_mask = model._generate_square_subsequent_mask(len(tgt_with_sos))
-        output = model(src_with_eos, tgt_with_sos,src_mask, tgt_mask).squeeze()
+        output = model(src_with_eos, tgt_with_sos).squeeze()
         loss = criterion(output, tgt_with_eos)
         output = softmax(output)
         acc , bleu = evaluate(output , tgt_with_eos, len(tgt_with_eos))
@@ -235,30 +248,35 @@ def valid_trans(model, valid_data, vocab_src, vocab_tgt):
     return total_loss/count, total_acc/count,total_bleu/count
 
 def trans_task():
-    logger.add(options.base_path+'output/transformer-'+str(datetime.date.today()) +'.log')
+    model_name = 'transformer'
+    dataset_name = 'wmt14'
+    logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
     setup_seed(options.seed_id)
-    train_data, valid_data, test_data, vocab_src, vocab_tgt = read_data("copy")
-    model = TransformerModel(vocab_tgt.n_words, 128,16,128,3,0.1).to(options.device)
+    train_data, valid_data, test_data, vocab_src, vocab_tgt = read_data(dataset_name)
+    model = TransformerModel(vocab_src.n_words,vocab_tgt.n_words, 128,16,128,3,0.1).to(options.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=options.learning_rate, weight_decay=0)
     criterion = nn.CrossEntropyLoss()
     model_info(model)
+    loadmodel(model, model.name + '-' +dataset_name)
     for epoch in range(options.epoch):
         count = 0
         total_loss = 0
         for src, tgt in train_data:
+            if len(src) > options.sen_len_max or len(tgt) > options.sen_len_max:
+                continue
+            if len(src) == 7 or len(src) == 7:
+                continue
             src_with_eos = attach_eos(src)
             tgt_with_sos = insert_sos(tgt)
             tgt_with_eos = attach_eos(tgt)
-            src_mask = model._generate_square_subsequent_mask(len(src_with_eos))
-            tgt_mask = model._generate_square_subsequent_mask(len(tgt_with_sos))
             optimizer.zero_grad()
-            output = model(src_with_eos, tgt_with_sos,src_mask, tgt_mask).squeeze()
+            output = model(src_with_eos, tgt_with_sos).squeeze()
             loss = criterion(output, tgt_with_eos)
             loss.backward()
             optimizer.step()
             count = count+ 1
             total_loss =total_loss + loss.item()
-            if count % 100 == 0:
+            if count % int(len(train_data)/10) == 0:
                 valid_loss, acc, bleu = valid_trans(model, valid_data,vocab_src, vocab_tgt)
                 logger.info("epoch: %d, count: %d, train loss: %.4f, valid loss: %.4f, acc: %.4f, bleu:%.4f" %(epoch, count, total_loss/count, valid_loss,acc, bleu))
 
@@ -278,8 +296,9 @@ def trans_task():
                 #         # print('-->para:', parms)
                 #         print('-->grad_requirs:',parms.requires_grad)
                 #         print('-->grad_value:',parms.grad)
+    savemodel(model, model.name + '-' +dataset_name)
 
 
-s2s_task()
+trans_task()
 
 
