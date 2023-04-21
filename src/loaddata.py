@@ -107,9 +107,9 @@ def gen_token_vectors(vocab_src, vocab_tgt, tokens):
     return token_vectors
 
 def train_tokenizer(dataset,src_lang, tgt_lang, trainer,tokenizer):
-    train_len = 10000 # dataset['train'].num_rows
-    test_len = 100 # dataset['test'].num_rows
-    valid_len = 100 # dataset['validation'].num_rows
+    train_len = options.tok.train_len # dataset['train'].num_rows
+    test_len = options.tok.test_len # dataset['test'].num_rows
+    valid_len = options.tok.valid_len # dataset['validation'].num_rows
     raw_lines = np.empty([train_len + test_len + valid_len], dtype = int).tolist()
     train_iter = iter(dataset['train'])
     offset = 0
@@ -135,9 +135,9 @@ def train_tokenizer(dataset,src_lang, tgt_lang, trainer,tokenizer):
     tokenizer.train_from_iterator(raw_lines, trainer=trainer)
 
 def read_raw_tokens(dataset, src_lang, tgt_lang,tokenizer):
-    train_len = 10000 # dataset['train'].num_rows
-    test_len = 100 # dataset['test'].num_rows
-    valid_len = 100 # dataset['validation'].num_rows
+    train_len = options.tok.train_len # dataset['train'].num_rows
+    test_len = options.tok.test_len # dataset['test'].num_rows
+    valid_len = options.tok.valid_len # dataset['validation'].num_rows
     train_raw_tokens = np.empty([train_len], dtype=int).tolist()
     train_iter = iter(dataset['train'])
     for i in range(train_len):

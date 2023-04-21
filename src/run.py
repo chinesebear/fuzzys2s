@@ -397,6 +397,6 @@ def trans_task():
     logger.info("[%s-%s]test loss: %.4f, acc: %.4f, bleu:%.4f" %(model.name,dataset_name , test_loss,acc, bleu))
 
 s2s_task()
-# trans_task()
+trans_task()
 
 

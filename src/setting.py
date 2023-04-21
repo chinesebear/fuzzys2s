@@ -16,7 +16,7 @@ options.SOS = 0 # start of sentence
 options.EOS = 1 # End of sentence
 options.PAD = 2 # padding token
 options.UNK = 3 # unknown token, word frequency low
-options.epoch= 100
+options.epoch= 20
 options.feature_num = 2 # [len, HF]
 options.rule_num = 3
 options.cluster_num = options.rule_num
@@ -27,13 +27,19 @@ options.drop_out = 0.1
 options.learning_rate = 0.0001
 
 
-trans = Options("trans")
+trans = Options("transformer")
 trans.embedding_dim = 128
 trans.hidden_size = 128
 trans.nlayer = 3
 trans.nhead = 16
 trans.drop_out = 0.1
 options.trans = trans
+
+tok = Options("tokenizer")
+tok.train_len = 50000
+tok.valid_len = 500
+tok.test_len = 500
+options.tok = tok
 
 def setting_info():
     output = ""
