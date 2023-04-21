@@ -16,7 +16,7 @@ options.SOS = 0 # start of sentence
 options.EOS = 1 # End of sentence
 options.PAD = 2 # padding token
 options.UNK = 3 # unknown token, word frequency low
-options.epoch= 20
+options.epoch= 100
 options.feature_num = 2 # [len, HF]
 options.rule_num = 3
 options.cluster_num = options.rule_num
@@ -32,6 +32,7 @@ trans.embedding_dim = 128
 trans.hidden_size = 128
 trans.nlayer = 3
 trans.nhead = 16
+trans.drop_out = 0.1
 options.trans = trans
 
 def setting_info():

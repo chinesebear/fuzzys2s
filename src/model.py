@@ -150,9 +150,9 @@ class FuzzyEncoder(nn.Module):
         self.fs = FuzzySystem(feature_num, rule_num, center, sigma)
         encoder_list = []
         for _ in range(rule_num):
-            encoder_list.append(TransDecoder(src_vocab_size,
+            encoder_list.append(TransEncoder(src_vocab_size,
                                              options.trans.embedding_dim,
-                                             options.trans.nheade,
+                                             options.trans.nhead,
                                              options.trans.hidden_size,
                                              options.trans.nlayer,
                                              options.trans.drop_out))
@@ -175,7 +175,7 @@ class FuzzyDecoder(nn.Module):
         for _ in range(rule_num):
             decoder_list.append(TransDecoder(tgt_vocab_size,
                                              options.trans.embedding_dim,
-                                             options.trans.nheade,
+                                             options.trans.nhead,
                                              options.trans.hidden_size,
                                              options.trans.nlayer,
                                              options.trans.drop_out))

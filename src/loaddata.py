@@ -56,6 +56,27 @@ def gen_sen_feature_map(vocab, sentence):
         if count > options.high_freq_limit:
             HF = HF + 1
     return [slen, HF]
+    # copy dataset
+    # features = [0,0,0,0,0,0,0,0,0,0]
+    # slen = len(sentence)
+    # if slen > options.feature_num:
+    #     slen = options.feature_num
+    # for i in range(slen):
+    #     features[i] = sentence[i]
+    # return features
+
+def combine_sen_feature_map(data, vocab_src, vocab_tgt):
+    dlen = len(data)
+    src_feature_map = np.empty((dlen, options.feature_num), dtype=int)
+    tgt_feature_map = np.empty((dlen, options.feature_num), dtype=int)
+    for i in range(dlen):
+        src = data[i][0]
+        tgt = data[i][1]
+        src_feature_map[i] = gen_sen_feature_map(vocab_src, src)
+        tgt_feature_map[i] = gen_sen_feature_map(vocab_tgt, tgt)
+    # return type is numpy.array
+    return src_feature_map, tgt_feature_map
+
 
 def build_vocab(vocab_src, vocab_tgt, tokens):
     for sentence in tokens:
@@ -85,22 +106,6 @@ def gen_token_vectors(vocab_src, vocab_tgt, tokens):
         token_vectors.append([src, tgt])
     return token_vectors
 
-def read_file(path):
-    fd = open(path,encoding = "utf-8")
-    raw_lines = json.loads(fd.read())
-    logger.info("dataset:%s, split:%s, cofig:%s" %(raw_lines['dataset'],raw_lines['split'],raw_lines['config']))
-    raw_lines = raw_lines['rows']
-    tokens = []
-    for line in raw_lines:
-        src = line['row']['translation']['en']
-        tgt = line['row']['translation']['fr']
-        src = "<sos> " + src + " <eos>"
-        tgt = "<sos> " + tgt + " <eos>"
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        tokens.append([src, tgt])
-    fd.close()
-    return tokens
 def train_tokenizer(dataset,src_lang, tgt_lang, trainer,tokenizer):
     train_len = 10000 # dataset['train'].num_rows
     test_len = 100 # dataset['test'].num_rows
@@ -162,6 +167,56 @@ def read_raw_tokens(dataset, src_lang, tgt_lang,tokenizer):
         valid_raw_tokens[i] = [src, tgt]
     return train_raw_tokens, test_raw_tokens, valid_raw_tokens
 
+def read_file(path):
+    fd = open(path,encoding = "utf-8")
+    raw_lines = json.loads(fd.read())
+    logger.info("dataset:%s, split:%s, cofig:%s" %(raw_lines['dataset'],raw_lines['split'],raw_lines['config']))
+    raw_lines = raw_lines['rows']
+    tokens = []
+    for line in raw_lines:
+        src = line['row']['translation']['en']
+        tgt = line['row']['translation']['fr']
+        src = "<sos> " + src + " <eos>"
+        tgt = "<sos> " + tgt + " <eos>"
+        src = tokenizer(src)
+        tgt = tokenizer(tgt)
+        tokens.append([src, tgt])
+    fd.close()
+    return tokens
+
+def read_tatoeba_data():
+    logger.info("read raw data")
+    fd = open(options.base_path+"/doc/tatoeba/fra.txt",encoding = "utf-8")
+    lines = fd.readlines()
+    logger.info("dataset:tatoeba, total:%d" %(len(lines)))
+    tokens = [] #  src-tgt token pairs
+    for line in lines[:10000]:
+        sen = line.split('\t')
+        src = sen[0] # en
+        tgt = sen[1] # fr
+        src = tokenizer(src)
+        tgt = tokenizer(tgt)
+        tokens.append([src, tgt])
+    fd.close()
+    total = len(tokens)
+    part = int(total/10)
+    train_tokens = tokens[:total - part*2]
+    valid_tokens = tokens[total - part*2:total - part]
+    test_tokens = tokens[total - part:]
+    logger.info("build vocabulary")
+    vocab_src = Vocab("src en")
+    vocab_tgt = Vocab("tgt fr")
+    build_vocab(vocab_src, vocab_tgt, train_tokens)
+    build_vocab(vocab_src, vocab_tgt, valid_tokens)
+    build_vocab(vocab_src, vocab_tgt, test_tokens)
+    logger.info("src vocab name:%s, size:%d" %(vocab_src.name, vocab_src.n_words))
+    logger.info("tgt vocab name:%s, size:%d" %(vocab_tgt.name, vocab_tgt.n_words))
+    logger.info("generate token vectors")
+    train_data = gen_token_vectors(vocab_src, vocab_tgt, train_tokens)
+    valid_data = gen_token_vectors(vocab_src, vocab_tgt, valid_tokens)
+    test_data = gen_token_vectors(vocab_src, vocab_tgt, test_tokens)
+    return train_data, valid_data, test_data, vocab_src, vocab_tgt
+
 def read_wmt14_data():
     logger.info("train tokenizer")
     src_lang = 'en'
@@ -212,42 +267,6 @@ def read_opus100_data():
     test_data = gen_token_vectors(vocab_src, vocab_tgt, test_tokens)
     return train_data, valid_data, test_data, vocab_src, vocab_tgt
 
-def read_tatoeba_data():
-    logger.info("read raw data")
-    fd = open(options.base_path+"/doc/tatoeba/fra.txt",encoding = "utf-8")
-    lines = fd.readlines()
-    logger.info("dataset:tatoeba, total:%d" %(len(lines)))
-    tokens = [] #  src-tgt token pairs
-    for line in lines[:10000]:
-        sen = line.split('\t')
-        src = sen[0] # en
-        tgt = sen[1] # fr
-        src = "<sos> " + src + " <eos>"
-        # tgt = "<sos> " + tgt + " <eos>"
-        tgt = src
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        tokens.append([src, tgt])
-    fd.close()
-    total = len(tokens)
-    part = int(total/10)
-    train_tokens = tokens[:total - part*2]
-    valid_tokens = tokens[total - part*2:total - part]
-    test_tokens = tokens[total - part:]
-    logger.info("build vocabulary")
-    vocab_src = Vocab("src en")
-    vocab_tgt = Vocab("tgt fr")
-    build_vocab(vocab_src, vocab_tgt, train_tokens)
-    build_vocab(vocab_src, vocab_tgt, valid_tokens)
-    build_vocab(vocab_src, vocab_tgt, test_tokens)
-    logger.info("src vocab name:%s, size:%d" %(vocab_src.name, vocab_src.n_words))
-    logger.info("tgt vocab name:%s, size:%d" %(vocab_tgt.name, vocab_tgt.n_words))
-    logger.info("generate token vectors")
-    train_data = gen_token_vectors(vocab_src, vocab_tgt, train_tokens)
-    valid_data = gen_token_vectors(vocab_src, vocab_tgt, valid_tokens)
-    test_data = gen_token_vectors(vocab_src, vocab_tgt, test_tokens)
-    return train_data, valid_data, test_data, vocab_src, vocab_tgt
-
 def read_copy_data():
     logger.info("read raw data")
     logger.info("build vocabulary")
@@ -258,7 +277,6 @@ def read_copy_data():
     for i in range(len(data)):
         for j in range(len(data[i][0])):
             data[i][0][j] = words[data[i][0][j]]
-        data[i][0] = ["<sos>"] + data[i][0] + ['<eos>']
         data[i][1] = data[i][0]
     build_vocab(vocab_src, vocab_tgt, data)
     logger.info("src vocab name:%s, size:%d" %(vocab_src.name, vocab_src.n_words))
@@ -284,16 +302,14 @@ def read_data(dataset):
 
 
 def fcm(data, cluster_num, h):
+    # input data type is numpy
     logger.info("fcm clustering...")
     feature_num = len(data[0])
     fcm = FCM(n_clusters=cluster_num)
-    data = data.view(-1, feature_num)
-    data = np.array(data)
     fcm.fit(data)
     centers = fcm.centers.tolist()
     logger.info("cluster center: %d" %(len(centers)))
     membership = fcm.soft_predict(data)
-
     data_num = len(data)
     sigma = []
     for i in range(cluster_num):
