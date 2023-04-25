@@ -12,10 +12,10 @@ from tokenizers.models import BPE,WordPiece,Unigram
 from tokenizers.pre_tokenizers import Whitespace
 from tokenizers.trainers import BpeTrainer,WordPieceTrainer, UnigramTrainer
 
-def tokenizer(sentence):
-    tokenizer = get_tokenizer("basic_english")
-    tokens = tokenizer(sentence)
-    return tokens
+# def tokenizer(sentence):
+#     tokenizer = get_tokenizer("basic_english")
+#     tokens = tokenizer(sentence)
+#     return tokens
 
 class Vocab:
     def __init__(self, name):
@@ -28,10 +28,10 @@ class Vocab:
         self.feature_min = [] # min value of feature
         self.line_max = 0 # max length of sentence
 
-    def addSentence(self, sentence):
-        tokens = tokenizer(sentence)
-        for word in tokens:
-            self.addWord(word)
+    # def addSentence(self, sentence):
+    #     tokens = tokenizer(sentence)
+    #     for word in tokens:
+    #         self.addWord(word)
 
     def addTokens(self, tokens):
         for word in tokens:
@@ -138,6 +138,7 @@ def read_raw_tokens(dataset, src_lang, tgt_lang,tokenizer):
     train_len = options.tok.train_len # dataset['train'].num_rows
     test_len = options.tok.test_len # dataset['test'].num_rows
     valid_len = options.tok.valid_len # dataset['validation'].num_rows
+    # dataset = dataset.shuffle()
     train_raw_tokens = np.empty([train_len], dtype=int).tolist()
     train_iter = iter(dataset['train'])
     for i in range(train_len):
@@ -190,7 +191,7 @@ def read_tatoeba_data():
     lines = fd.readlines()
     logger.info("dataset:tatoeba, total:%d" %(len(lines)))
     tokens = [] #  src-tgt token pairs
-    for line in lines[:10000]:
+    for line in lines:
         sen = line.split('\t')
         src = sen[0] # en
         tgt = sen[1] # fr

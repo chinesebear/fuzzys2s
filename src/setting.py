@@ -36,7 +36,7 @@ trans.drop_out = 0.1
 options.trans = trans
 
 tok = Options("tokenizer")
-tok.train_len = 50000
+tok.train_len = 200000
 tok.valid_len = 500
 tok.test_len = 500
 options.tok = tok
