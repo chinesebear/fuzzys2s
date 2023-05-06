@@ -349,7 +349,7 @@ def trans_task():
     logger.info('model %s on dataset %s start' %(model_name, dataset_name))
     setup_seed(options.seed_id)
     train_data, valid_data, test_data, vocab_src, vocab_tgt = read_data(dataset_name)
-    model = TransformerModel(vocab_src.n_words,vocab_tgt.n_words, 128,16,128,3,0.1).to(options.device)
+    model = TransformerModel(vocab_src.n_words,vocab_tgt.n_words, 128,16,128,3*options.rule_num,0.1).to(options.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=options.learning_rate, weight_decay=0)
     criterion = nn.CrossEntropyLoss()
     model_info(model)

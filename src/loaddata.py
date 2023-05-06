@@ -268,6 +268,11 @@ def read_opus100_data():
     test_data = gen_token_vectors(vocab_src, vocab_tgt, test_tokens)
     return train_data, valid_data, test_data, vocab_src, vocab_tgt
 
+def read_heartstone_data():
+    logger.info("read raw data")
+    logger.info("build vocabulary")
+
+
 def read_copy_data():
     logger.info("read raw data")
     logger.info("build vocabulary")

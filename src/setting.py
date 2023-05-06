@@ -21,7 +21,7 @@ options.feature_num = 2 # [len, HF]
 options.rule_num = 3
 options.cluster_num = options.rule_num
 options.h = 10.0
-options.sen_len_max = 1000
+options.sen_len_max = 512
 options.high_freq_limit = 100
 options.drop_out = 0.1
 options.learning_rate = 0.0001
@@ -36,7 +36,7 @@ trans.drop_out = 0.1
 options.trans = trans
 
 tok = Options("tokenizer")
-tok.train_len = 200000
+tok.train_len = 400000
 tok.valid_len = 500
 tok.test_len = 500
 options.tok = tok
