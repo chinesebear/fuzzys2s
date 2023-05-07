@@ -1,9 +1,11 @@
 import csv
+import os
 from fcmeans import FCM
 import numpy as np
 import torch
 import json
 from torchtext.data import get_tokenizer
+from transformers import AutoTokenizer
 from loguru import logger
 from setting import options,Options
 from datasets import load_dataset
@@ -268,9 +270,63 @@ def read_opus100_data():
     test_data = gen_token_vectors(vocab_src, vocab_tgt, test_tokens)
     return train_data, valid_data, test_data, vocab_src, vocab_tgt
 
-def read_heartstone_data():
+def get_base_tokenizer(name):
+    tokenizer_path = options.base_path+"output/"+name+"/"
+    if os.path.exists(tokenizer_path):
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(name)
+        tokenizer.save_pretrained(tokenizer_path)
+    return tokenizer
+
+def read_line_pair(src_path, tgt_path):
+    src_fd = open(src_path, "r")
+    tgt_fd = open(tgt_path, "r")
+    src_lines = src_fd.readlines()
+    tgt_lines = tgt_fd.readlines()
+    lines =[]
+    for i  in range(len(src_lines)):
+        src = src_lines[i]
+        tgt = tgt_lines[i]
+        lines.append([src, tgt])
+    src_fd.close()
+    tgt_fd.close()
+    return lines
+
+def read_hearthstone_data():
     logger.info("read raw data")
+    train_lines = read_line_pair(options.base_path+'doc/hearthstone/train_hs.in', options.base_path+'doc/hearthstone/train_hs.out')
+    valid_lines = read_line_pair(options.base_path+'doc/hearthstone/dev_hs.in', options.base_path+'doc/hearthstone/dev_hs.out')
+    test_lines = read_line_pair(options.base_path+'doc/hearthstone/test_hs.in', options.base_path+'doc/hearthstone/test_hs.out')
+    tokenizer = get_base_tokenizer('bert-base-uncased')
+    train_tokens=[]
+    valid_tokens=[]
+    test_tokens=[]
+    for src, tgt in train_lines:
+        src_tokens = tokenizer.tokenize(src)
+        tgt_tokens = tokenizer.tokenize(tgt)
+        train_tokens.append([src_tokens, tgt_tokens])
+    for src, tgt in valid_lines:
+        src_tokens = tokenizer.tokenize(src)
+        tgt_tokens = tokenizer.tokenize(tgt)
+        valid_tokens.append([src_tokens, tgt_tokens])
+    for src, tgt in test_lines:
+        src_tokens = tokenizer.tokenize(src)
+        tgt_tokens = tokenizer.tokenize(tgt)
+        test_tokens.append([src_tokens, tgt_tokens])
     logger.info("build vocabulary")
+    vocab_src = Vocab("src")
+    vocab_tgt = Vocab("tgt")
+    build_vocab(vocab_src, vocab_tgt, train_tokens)
+    build_vocab(vocab_src, vocab_tgt, valid_tokens)
+    build_vocab(vocab_src, vocab_tgt, test_tokens)
+    logger.info("src vocab name:%s, size:%d" %(vocab_src.name, vocab_src.n_words))
+    logger.info("tgt vocab name:%s, size:%d" %(vocab_tgt.name, vocab_tgt.n_words))
+    logger.info("generate token vectors")
+    train_data = gen_token_vectors(vocab_src, vocab_tgt, train_tokens)
+    valid_data = gen_token_vectors(vocab_src, vocab_tgt, valid_tokens)
+    test_data = gen_token_vectors(vocab_src, vocab_tgt, test_tokens)
+    return train_data, valid_data, test_data, vocab_src, vocab_tgt
 
 
 def read_copy_data():
@@ -305,6 +361,8 @@ def read_data(dataset):
         return read_copy_data()
     elif dataset == 'opus100':
         return read_opus100_data()
+    elif dataset == 'hearthstone':
+        return read_hearthstone_data()
 
 
 def fcm(data, cluster_num, h):

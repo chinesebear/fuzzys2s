@@ -10,6 +10,7 @@ from model import FuzzyS2S,TransformerModel
 from loaddata import read_data,fcm, gen_sen_feature_map,combine_sen_feature_map,insert_sos,attach_eos
 from setting import options, setting_info
 import os
+from evaluate import evaluate
 
 def model_info(model):
     logger.info("[model %s]" %(model.name))
@@ -25,114 +26,114 @@ def setup_seed(seed):
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
 
-def padding1d(input, limit_size):
-    size = limit_size - len(input)
-    output = F.pad(input, (0,size), mode="constant", value=options.PAD_token).long()
-    return output
+# def padding1d(input, limit_size):
+#     size = limit_size - len(input)
+#     output = F.pad(input, (0,size), mode="constant", value=options.PAD_token).long()
+#     return output
 
-def truncat1d(input, limit_size):
-    return input[0:limit_size]
+# def truncat1d(input, limit_size):
+#     return input[0:limit_size]
 
-def align1d(input, limit_size):
-    if len(input) < limit_size:
-        return padding1d(input, limit_size)
-    elif len(input) > limit_size:
-        return truncat1d(input, limit_size)
-    else:
-        return input
+# def align1d(input, limit_size):
+#     if len(input) < limit_size:
+#         return padding1d(input, limit_size)
+#     elif len(input) > limit_size:
+#         return truncat1d(input, limit_size)
+#     else:
+#         return input
 
-def getlen1d(input):
-    """get sentence length without padding"""
-    # count=0
-    # for i in range(len(input)):
-    #     if input[i] == options.EOS or (input[i] == options.PAD and input[i+1] == options.PAD and input[i+2] == options.PAD):
-    #         return count
-    #     else:
-    #         count += 1
-    # return count
-    return len(input)
+# def getlen1d(input):
+#     """get sentence length without padding"""
+#     # count=0
+#     # for i in range(len(input)):
+#     #     if input[i] == options.EOS or (input[i] == options.PAD and input[i+1] == options.PAD and input[i+2] == options.PAD):
+#     #         return count
+#     #     else:
+#     #         count += 1
+#     # return count
+#     return len(input)
 
-def calc_bp(candidate, reference):
-    r = getlen1d(candidate)
-    c = getlen1d(reference)
-    bp = 0
-    if c > r :
-        bp = 1
-    else:
-        bp = math.exp(1 - r/c)
-    return bp
+# def calc_bp(candidate, reference):
+#     r = getlen1d(candidate)
+#     c = getlen1d(reference)
+#     bp = 0
+#     if c > r :
+#         bp = 1
+#     else:
+#         bp = math.exp(1 - r/c)
+#     return bp
 
-def count_ngram(ngram, sentence, n):
-    limit = len(sentence) - n + 1
-    count = 0
-    for i in range(limit):
-        item = str(sentence[i:i+n])
-        if ngram == item:
-            count+=1
-    return count
+# def count_ngram(ngram, sentence, n):
+#     limit = len(sentence) - n + 1
+#     count = 0
+#     for i in range(limit):
+#         item = str(sentence[i:i+n])
+#         if ngram == item:
+#             count+=1
+#     return count
 
-def calc_ngram_score(candidate, reference, n):
-    count = 0
-    candidate_len = getlen1d(candidate)
-    reference_len = getlen1d(reference)
-    candidate_ngram_dict = {}
-    limit = candidate_len -n + 1
-    for i in range(limit):
-        ngram = str(candidate[i:i+n])
-        if ngram in candidate_ngram_dict.keys():
-            candidate_ngram_dict[ngram] += 1
-        else:
-            candidate_ngram_dict[ngram] = 1
-    hc = sum(candidate_ngram_dict.values())
-    limit = reference_len - n + 1
-    min_hc_hs = 0
-    for ngram in candidate_ngram_dict.keys():
-        count = count_ngram(ngram, reference, n)
-        min_hc_hs += min(count, candidate_ngram_dict[ngram])
-    if min_hc_hs == 0 or hc == 0:
-        return 0.0
-    Pn = min_hc_hs / hc
-    return Pn
+# def calc_ngram_score(candidate, reference, n):
+#     count = 0
+#     candidate_len = getlen1d(candidate)
+#     reference_len = getlen1d(reference)
+#     candidate_ngram_dict = {}
+#     limit = candidate_len -n + 1
+#     for i in range(limit):
+#         ngram = str(candidate[i:i+n])
+#         if ngram in candidate_ngram_dict.keys():
+#             candidate_ngram_dict[ngram] += 1
+#         else:
+#             candidate_ngram_dict[ngram] = 1
+#     hc = sum(candidate_ngram_dict.values())
+#     limit = reference_len - n + 1
+#     min_hc_hs = 0
+#     for ngram in candidate_ngram_dict.keys():
+#         count = count_ngram(ngram, reference, n)
+#         min_hc_hs += min(count, candidate_ngram_dict[ngram])
+#     if min_hc_hs == 0 or hc == 0:
+#         return 0.0
+#     Pn = min_hc_hs / hc
+#     return Pn
 
-def calcBLEU(candidate, reference):
-    N = 4
-    log_Pn = [0.0,0.0,0.0,0.0]
-    for i in range(N):
-        Pn = calc_ngram_score(candidate, reference, i+1)
-        if Pn == 0:
-            return 0.0
-        else:
-            log_Pn[i] = math.log(Pn)
-    bp = calc_bp(candidate, reference)
-    bleu = bp * math.exp(sum(log_Pn) / N)
-    return bleu
+# def calcBLEU(candidate, reference):
+#     N = 4
+#     log_Pn = [0.0,0.0,0.0,0.0]
+#     for i in range(N):
+#         Pn = calc_ngram_score(candidate, reference, i+1)
+#         if Pn == 0:
+#             return 0.0
+#         else:
+#             log_Pn[i] = math.log(Pn)
+#     bp = calc_bp(candidate, reference)
+#     bleu = bp * math.exp(sum(log_Pn) / N)
+#     return bleu
 
-def countequal1d(a, b, limit):
-    count = 0
-    for i in range(limit):
-        if a[i] == b[i]:
-            count += 1
-    return count
+# def countequal1d(a, b, limit):
+#     count = 0
+#     for i in range(limit):
+#         if a[i] == b[i]:
+#             count += 1
+#     return count
 
-def calcACC(predict, target, length):
-    correct = countequal1d(predict, target, length)
-    total = length
-    acc = correct / total
-    return acc
+# def calcACC(predict, target, length):
+#     correct = countequal1d(predict, target, length)
+#     total = length
+#     acc = correct / total
+#     return acc
 
-def calcPPL(loss):
-    ppl = math.exp(min(loss, 100.0))
-    return ppl
+# def calcPPL(loss):
+#     ppl = math.exp(min(loss, 100.0))
+#     return ppl
 
-def evaluate(output, target, target_len):
-    # print("output:",output.shape,",target:",target.shape)
-    predict  = torch.argmax(output,dim=-1)
-    predict = align1d(predict, target_len)
-    acc = calcACC(predict, target, target_len)
-    reference = target.tolist()
-    candidate = predict.tolist()
-    bleu = calcBLEU(candidate, reference)
-    return acc,bleu
+# def evaluate(output, target, target_len):
+#     # print("output:",output.shape,",target:",target.shape)
+#     predict  = torch.argmax(output,dim=-1)
+#     predict = align1d(predict, target_len)
+#     acc = calcACC(predict, target, target_len)
+#     reference = target.tolist()
+#     candidate = predict.tolist()
+#     bleu = calcBLEU(candidate, reference)
+#     return acc,bleu
 
 def savemodel(model,file):
     torch.save(model.state_dict(), options.model_parameter_path+file+".pth")
@@ -176,7 +177,7 @@ def predict(model, test_data, vocab_src, vocab_tgt):
             tgt_feature_map = torch.tensor(gen_sen_feature_map(vocab_tgt, predict.tolist())).to(options.device)
         loss = criterion(output, tgt_with_eos)
         output = softmax(output)
-        acc , bleu = evaluate(output , tgt_with_eos, len(tgt_with_eos))
+        acc , bleu = evaluate(output , tgt_with_eos, vocab_tgt)
         count = count+ 1
         total_loss =total_loss + loss.item()
         total_acc = total_acc +acc
@@ -210,7 +211,7 @@ def valid(model, valid_data, vocab_src, vocab_tgt):
         output = output.squeeze()
         loss = criterion(output, tgt_with_eos)
         output = softmax(output)
-        acc , bleu = evaluate(output , tgt_with_eos, len(tgt_with_eos))
+        acc , bleu = evaluate(output , tgt_with_eos, vocab_tgt)
         count = count+ 1
         total_loss =total_loss + loss.item()
         total_acc = total_acc +acc
@@ -219,7 +220,7 @@ def valid(model, valid_data, vocab_src, vocab_tgt):
 
 def s2s_task():
     model_name = 'fuzzys2s'
-    dataset_name = 'wmt14'
+    dataset_name = 'hearthstone'
     logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
     logger.info('model %s on dataset %s start' %(model_name, dataset_name))
     setup_seed(options.seed_id)
@@ -304,7 +305,7 @@ def predict_trans(model, test_data, vocab_src, vocab_tgt):
         predict = tgt_with_sos[1:]
         loss = criterion(output, tgt_with_eos)
         output = softmax(output)
-        acc , bleu = evaluate(output , tgt_with_eos, len(tgt_with_eos))
+        acc , bleu = evaluate(output , tgt_with_eos, vocab_tgt)
         count = count+ 1
         total_loss =total_loss + loss.item()
         total_acc = total_acc +acc
@@ -335,7 +336,7 @@ def valid_trans(model, valid_data, vocab_src, vocab_tgt):
         output = model(src_with_eos, tgt_with_sos).squeeze()
         loss = criterion(output, tgt_with_eos)
         output = softmax(output)
-        acc , bleu = evaluate(output , tgt_with_eos, len(tgt_with_eos))
+        acc , bleu = evaluate(output , tgt_with_eos, vocab_tgt)
         count = count+ 1
         total_loss =total_loss + loss.item()
         total_acc = total_acc +acc
@@ -344,7 +345,7 @@ def valid_trans(model, valid_data, vocab_src, vocab_tgt):
 
 def trans_task():
     model_name = 'transformer'
-    dataset_name = 'wmt14'
+    dataset_name = 'hearthstone'
     logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
     logger.info('model %s on dataset %s start' %(model_name, dataset_name))
     setup_seed(options.seed_id)
