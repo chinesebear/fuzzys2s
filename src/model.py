@@ -105,7 +105,7 @@ class TransformerModel(nn.Module):
         super(TransformerModel, self).__init__()
         self.name = "transformer"
         self.encoder = TransEncoder(vocab_src_size, ninp, nhead, nhid, nlayers,dropout)
-        self.decoder = TransDecoder(vocab_tgt_size, ninp, nhead, nhid, nlayers,dropout )
+        self.decoder = TransDecoder(vocab_tgt_size, ninp, nhead, nhid, nlayers,dropout)
     def forward(self, src, tgt):
         memory = self.encoder(src) # seq_len* batch* embedding_dim
         output = self.decoder(tgt, memory)

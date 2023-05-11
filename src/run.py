@@ -1,13 +1,14 @@
 from torch import nn
 import torch
 import torch.nn.functional as F
+from torchtext.data import get_tokenizer
 import datetime
 import numpy as np
 import random
 import math
 from loguru import logger
 from model import FuzzyS2S,TransformerModel
-from loaddata import read_data,fcm, gen_sen_feature_map,combine_sen_feature_map,insert_sos,attach_eos
+from loaddata import read_data,fcm, gen_sen_feature_map,combine_sen_feature_map,insert_sos,attach_eos,get_base_tokenizer
 from setting import options, setting_info
 import os
 from evaluate import evaluate
@@ -25,115 +26,6 @@ def setup_seed(seed):
     np.random.seed(seed)
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
-
-# def padding1d(input, limit_size):
-#     size = limit_size - len(input)
-#     output = F.pad(input, (0,size), mode="constant", value=options.PAD_token).long()
-#     return output
-
-# def truncat1d(input, limit_size):
-#     return input[0:limit_size]
-
-# def align1d(input, limit_size):
-#     if len(input) < limit_size:
-#         return padding1d(input, limit_size)
-#     elif len(input) > limit_size:
-#         return truncat1d(input, limit_size)
-#     else:
-#         return input
-
-# def getlen1d(input):
-#     """get sentence length without padding"""
-#     # count=0
-#     # for i in range(len(input)):
-#     #     if input[i] == options.EOS or (input[i] == options.PAD and input[i+1] == options.PAD and input[i+2] == options.PAD):
-#     #         return count
-#     #     else:
-#     #         count += 1
-#     # return count
-#     return len(input)
-
-# def calc_bp(candidate, reference):
-#     r = getlen1d(candidate)
-#     c = getlen1d(reference)
-#     bp = 0
-#     if c > r :
-#         bp = 1
-#     else:
-#         bp = math.exp(1 - r/c)
-#     return bp
-
-# def count_ngram(ngram, sentence, n):
-#     limit = len(sentence) - n + 1
-#     count = 0
-#     for i in range(limit):
-#         item = str(sentence[i:i+n])
-#         if ngram == item:
-#             count+=1
-#     return count
-
-# def calc_ngram_score(candidate, reference, n):
-#     count = 0
-#     candidate_len = getlen1d(candidate)
-#     reference_len = getlen1d(reference)
-#     candidate_ngram_dict = {}
-#     limit = candidate_len -n + 1
-#     for i in range(limit):
-#         ngram = str(candidate[i:i+n])
-#         if ngram in candidate_ngram_dict.keys():
-#             candidate_ngram_dict[ngram] += 1
-#         else:
-#             candidate_ngram_dict[ngram] = 1
-#     hc = sum(candidate_ngram_dict.values())
-#     limit = reference_len - n + 1
-#     min_hc_hs = 0
-#     for ngram in candidate_ngram_dict.keys():
-#         count = count_ngram(ngram, reference, n)
-#         min_hc_hs += min(count, candidate_ngram_dict[ngram])
-#     if min_hc_hs == 0 or hc == 0:
-#         return 0.0
-#     Pn = min_hc_hs / hc
-#     return Pn
-
-# def calcBLEU(candidate, reference):
-#     N = 4
-#     log_Pn = [0.0,0.0,0.0,0.0]
-#     for i in range(N):
-#         Pn = calc_ngram_score(candidate, reference, i+1)
-#         if Pn == 0:
-#             return 0.0
-#         else:
-#             log_Pn[i] = math.log(Pn)
-#     bp = calc_bp(candidate, reference)
-#     bleu = bp * math.exp(sum(log_Pn) / N)
-#     return bleu
-
-# def countequal1d(a, b, limit):
-#     count = 0
-#     for i in range(limit):
-#         if a[i] == b[i]:
-#             count += 1
-#     return count
-
-# def calcACC(predict, target, length):
-#     correct = countequal1d(predict, target, length)
-#     total = length
-#     acc = correct / total
-#     return acc
-
-# def calcPPL(loss):
-#     ppl = math.exp(min(loss, 100.0))
-#     return ppl
-
-# def evaluate(output, target, target_len):
-#     # print("output:",output.shape,",target:",target.shape)
-#     predict  = torch.argmax(output,dim=-1)
-#     predict = align1d(predict, target_len)
-#     acc = calcACC(predict, target, target_len)
-#     reference = target.tolist()
-#     candidate = predict.tolist()
-#     bleu = calcBLEU(candidate, reference)
-#     return acc,bleu
 
 def savemodel(model,file):
     torch.save(model.state_dict(), options.model_parameter_path+file+".pth")
@@ -218,13 +110,12 @@ def valid(model, valid_data, vocab_src, vocab_tgt):
         total_bleu = total_bleu + bleu
     return total_loss/count, total_acc/count,total_bleu/count
 
-def s2s_task():
+def s2s_task(dataset_name, tokenizer):
     model_name = 'fuzzys2s'
-    dataset_name = 'hearthstone'
-    logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
-    logger.info('model %s on dataset %s start' %(model_name, dataset_name))
+    log_file = logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
+    logger.info('model %s on dataset %s start...' %(model_name, dataset_name))
     setup_seed(options.seed_id)
-    train_data, valid_data, test_data, vocab_src, vocab_tgt = read_data(dataset_name)
+    train_data, valid_data, test_data, vocab_src, vocab_tgt = read_data(dataset_name, tokenizer)
     src_sen_feature_map, tgt_sen_feature_map = combine_sen_feature_map(train_data,vocab_src, vocab_tgt)
     logger.info("src token clustering")
     center_src,sigma_src = fcm(src_sen_feature_map, cluster_num= options.rule_num, h= options.h)
@@ -258,7 +149,7 @@ def s2s_task():
             total_loss =total_loss + loss.item()
             if count % int(len(train_data)/10) ==0:
                 valid_loss, acc, bleu = valid(model, valid_data,vocab_src, vocab_tgt)
-                logger.info("epoch: %d, count: %d, train loss: %.4f, valid loss: %.4f, acc: %.4f, bleu:%.4f" %(epoch, count, total_loss/count, valid_loss,acc, bleu))
+                logger.info("[%s-%s]epoch: %d, count: %d, train loss: %.4f, valid loss: %.4f, acc: %.2f, bleu:%.2f" %(model_name, dataset_name, epoch, count, total_loss/count, valid_loss,acc*100, bleu*100))
 
                 # for name, parms in model.named_parameters():
                 #     # encoder.rfs_block.center
@@ -278,7 +169,9 @@ def s2s_task():
                 #         print('-->grad_value:',parms.grad)
     savemodel(model, model.name + '-' +dataset_name)
     test_loss, acc, bleu = predict(model, test_data, vocab_src, vocab_tgt)
-    logger.info("[%s-%s]test loss: %.4f, acc: %.4f, bleu:%.4f" %(model.name,dataset_name , test_loss,acc, bleu))
+    logger.info("[%s-%s]test loss: %.4f, acc: %.2f, bleu: %.2f" %(model.name,dataset_name , test_loss,acc*100, bleu*100))
+    logger.remove(log_file)
+    return model_name, dataset_name, acc, bleu
 
 def predict_trans(model, test_data, vocab_src, vocab_tgt):
     count = 0
@@ -317,7 +210,6 @@ def predict_trans(model, test_data, vocab_src, vocab_tgt):
             logger.info("[predict] %s" %(tensor2string(vocab_tgt,predict)))
     return total_loss/count, total_acc/count,total_bleu/count
 
-
 def valid_trans(model, valid_data, vocab_src, vocab_tgt):
     count = 0
     total_acc = 0
@@ -343,14 +235,19 @@ def valid_trans(model, valid_data, vocab_src, vocab_tgt):
         total_bleu = total_bleu + bleu
     return total_loss/count, total_acc/count,total_bleu/count
 
-def trans_task():
+def trans_task(dataset_name, tokenizer):
     model_name = 'transformer'
-    dataset_name = 'hearthstone'
-    logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
-    logger.info('model %s on dataset %s start' %(model_name, dataset_name))
+    log_file = logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
+    logger.info('model %s on dataset %s start...' %(model_name, dataset_name))
     setup_seed(options.seed_id)
-    train_data, valid_data, test_data, vocab_src, vocab_tgt = read_data(dataset_name)
-    model = TransformerModel(vocab_src.n_words,vocab_tgt.n_words, 128,16,128,3*options.rule_num,0.1).to(options.device)
+    train_data, valid_data, test_data, vocab_src, vocab_tgt = read_data(dataset_name, tokenizer)
+    model = TransformerModel(vocab_src.n_words,
+                             vocab_tgt.n_words,
+                             options.trans.embedding_dim,
+                             options.trans.nhead,
+                             options.trans.hidden_size,
+                             options.trans.nlayer,
+                             options.trans.drop_out).to(options.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=options.learning_rate, weight_decay=0)
     criterion = nn.CrossEntropyLoss()
     model_info(model)
@@ -375,7 +272,7 @@ def trans_task():
             total_loss =total_loss + loss.item()
             if count % int(len(train_data)/10) == 0:
                 valid_loss, acc, bleu = valid_trans(model, valid_data,vocab_src, vocab_tgt)
-                logger.info("epoch: %d, count: %d, train loss: %.4f, valid loss: %.4f, acc: %.4f, bleu:%.4f" %(epoch, count, total_loss/count, valid_loss,acc, bleu))
+                logger.info("[%s-%s]epoch: %d, count: %d, train loss: %.4f, valid loss: %.4f, acc: %.2f, bleu:%.2f" %(model_name, dataset_name, epoch, count, total_loss/count, valid_loss,acc*100, bleu*100))
 
                 # for name, parms in model.named_parameters():
                 #     # encoder.rfs_block.center
@@ -395,9 +292,25 @@ def trans_task():
                 #         print('-->grad_value:',parms.grad)
     savemodel(model, model.name + '-' +dataset_name)
     test_loss, acc, bleu = predict_trans(model, test_data, vocab_src, vocab_tgt)
-    logger.info("[%s-%s]test loss: %.4f, acc: %.4f, bleu:%.4f" %(model.name,dataset_name , test_loss,acc, bleu))
+    logger.info("[%s-%s]test loss: %.4f, acc: %.2f, bleu: %.2f" %(model.name,dataset_name , test_loss,acc*100, bleu*100))
+    logger.remove(log_file)
+    return model_name, dataset_name, acc, bleu
 
-s2s_task()
-trans_task()
-
-
+def run():
+    # datasets = ['opus_euconst','hearthstone','magic', 'spider','samsum', 'gem', 'xlsum','django','conala', 'geo', 'atis']
+    datasets =['django']
+    results = []
+    tokenizer = get_tokenizer("basic_english")
+    # tokenizer = get_base_tokenizer('bert-base-uncased')
+    for dataset in datasets:
+        # model_name, dataset_name, acc, bleu = trans_task(dataset, tokenizer)
+        # results.append([model_name, dataset_name, acc, bleu])
+        model_name, dataset_name, acc, bleu = s2s_task(dataset, tokenizer)
+        results.append([model_name, dataset_name, acc, bleu])
+    log_file = logger.add(options.base_path+'output/result-'+str(datetime.date.today()) +'.log')
+    logger.info("------------------------------------result------------------------------------------" )
+    for model_name, dataset_name, acc, bleu in results:
+        logger.info("model: %s, datset: %s, acc: %.2f, bleu: %.2f" %(model_name, dataset_name, acc*100, bleu*100))
+    logger.remove(log_file)
+    return 0
+run()

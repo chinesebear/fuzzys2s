@@ -1,4 +1,5 @@
 from transformers import AutoTokenizer
+from torchtext.data import get_tokenizer
 import numpy as np
 from datasets import load_dataset,load_from_disk
 import os
@@ -11,7 +12,23 @@ import torch
 import torch.nn.functional as F
 import math
 from fcmeans import FCM
-from loaddata import Vocab
+from loaddata import Vocab, read_raw_data
+from tqdm import tqdm
+import csv
+import pickle
+
+def read_dataset(name, subpath):
+    dataset_path = options.base_path+"output/"+name+"/"+subpath+"/"
+    if os.path.exists(dataset_path):
+        dataset = load_from_disk(dataset_path)
+    else :
+        if subpath == '':
+            dataset = load_dataset(name)
+        else:
+            dataset = load_dataset(name,subpath)
+        dataset.save_to_disk(dataset_path)
+    logger.info("read %s-%s done" %(name,subpath))
+    return dataset
 
 def read_raw_lines(dataset, data_type, src_lang, tgt_lang):
     raw_len = dataset[data_type].num_rows
@@ -25,7 +42,7 @@ def read_raw_lines(dataset, data_type, src_lang, tgt_lang):
     return raw_lines
 
 def get_wmt16_iter():
-    dataset = load_dataset("wmt16",'de-en')
+    dataset = read_dataset("wmt16",'de-en')
     train_raw_iter = iter(dataset['train'])
     valid_raw_iter = iter(dataset['validation'])
     test_raw_iter = iter(dataset['test'])
@@ -36,23 +53,18 @@ def get_wmt16_iter():
     return raw_iter, raw_len, src_lang, tgt_lang
 
 def get_wmt14_iter():
-    dataset_path = options.base_path+"output/wmt14/fr-en/"
-    if os.path.exists(dataset_path):
-        dataset = load_from_disk(dataset_path)
-    else :
-        dataset = load_dataset("wmt14",'fr-en')
-        dataset.save_to_disk(dataset_path)
+    dataset = read_dataset("wmt14",'fr-en')
     train_raw_iter = iter(dataset['train'])
     valid_raw_iter = iter(dataset['validation'])
     test_raw_iter = iter(dataset['test'])
     raw_iter = itertools.chain(train_raw_iter, valid_raw_iter, test_raw_iter)
-    raw_len = 100000 #dataset['train'].num_rows + dataset['validation'].num_rows + dataset['test'].num_rows
+    raw_len = dataset['train'].num_rows + dataset['validation'].num_rows + dataset['test'].num_rows
     src_lang = 'en'
     tgt_lang = 'fr'
     return raw_iter, raw_len, src_lang, tgt_lang
 
 def get_opus100_iter():
-    dataset = load_dataset("opus100",'en-fr')
+    dataset = read_dataset("opus100",'en-fr')
     train_raw_iter = iter(dataset['train'])
     valid_raw_iter = iter(dataset['validation'])
     test_raw_iter = iter(dataset['test'])
@@ -102,29 +114,6 @@ def train_tokenizer(dataset, vocab_size):
     logger.info("dataset %s, vocab size %d , tokenizer train done" %(dataset, vocab_size))
     return tokenizer
 
-def train_tokenizers():
-    logger.add(options.base_path+'output/tokenizers-'+str(datetime.date.today()) +'.log')
-    train_tokenizer('wmt14', 1000)
-    train_tokenizer('wmt14', 4000)
-    train_tokenizer('wmt14', 10000)
-    train_tokenizer('wmt16', 1000)
-    train_tokenizer('wmt16', 4000)
-    train_tokenizer('wmt16', 10000)
-    train_tokenizer('opus100', 1000)
-    train_tokenizer('opus100', 4000)
-    train_tokenizer('opus100', 10000)
-
-def get_tokenizer(dataset, vocab_size):
-    tokenizer_path = options.base_path+"output/vs"+str(vocab_size)+"_"+dataset+"_tokenizer"
-    if os.path.exists(tokenizer_path):
-        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-        logger.info("dataset %s, vocab size %d , tokenizer found" %(dataset, vocab_size))
-        return tokenizer
-    else:
-        return train_tokenizer(dataset, vocab_size)
-
-# train_tokenizers()
-
 def get_base_tokenizer(name):
     tokenizer_path = options.base_path+"output/"+name+"/"
     if os.path.exists(tokenizer_path):
@@ -132,17 +121,30 @@ def get_base_tokenizer(name):
     else:
         tokenizer = AutoTokenizer.from_pretrained(name)
         tokenizer.save_pretrained(tokenizer_path)
-    return tokenizer
+    return tokenizer.tokenize
 
+def gen_token_feature(token, vocab):
+    size = len(token)
+    if token not in vocab.word2index:
+        vocab.addWord(token)
+    count = vocab.word2count[token]
+    if size > options.size_max:
+        size = 1.0
+    else:
+        size = size / options.size_max
+    if count > options.count_max:
+        count = 1.0
+    else:
+        count = count/options.count_max
+    feature = [size, count]
+    return feature
 
 def gen_token_features(tokens, vocab):
     tok_len = len(tokens)
     features= np.empty([tok_len, 2])
     for i in range(tok_len):
         token = tokens[i]
-        size = len(token)
-        count = vocab.word2count[token]
-        features[i] = [size, count]
+        features[i] = gen_token_feature(token, vocab)
     return features
 
 def gen_raw_features(raw_iter, raw_len , src_lang, tgt_lang, vocab, tokenizer):
@@ -153,7 +155,7 @@ def gen_raw_features(raw_iter, raw_len , src_lang, tgt_lang, vocab, tokenizer):
         src = data['translation'][src_lang]
         tgt = data['translation'][tgt_lang]
         line =  src + ' ' + tgt
-        tokens = tokenizer.tokenize(line)
+        tokens = tokenizer(line)
         raw_tokens[i] = tokens
         tok_total = tok_total + len(tokens)
     tok_features = np.empty([tok_total, 2])
@@ -166,13 +168,25 @@ def gen_raw_features(raw_iter, raw_len , src_lang, tgt_lang, vocab, tokenizer):
         offset = offset + len(features)
     return tok_features, tok_total
 
+def order_point(points):
+    # input type: np.array
+    idxs =  np.argsort(points, axis=0)
+    plen = len(points)
+    pwidth = len(points[0])
+    output = np.empty((plen,pwidth))
+    for i in range(plen):
+        output[i] = points[idxs[i][0]] # order by feature_0
+    return output
+
 def fcm_cluster(data, cluster_num, h):
     # input data type is numpy
     logger.info("fcm clustering...")
-    feature_num = len(data[0])
-    fcm = FCM(n_clusters=cluster_num)
+    feature_num = options.feature_num
+    fcm = FCM(n_clusters=cluster_num,max_iter=options.iter_num)
     fcm.fit(data)
-    centers = fcm.centers.tolist()
+    centers = fcm.centers
+    centers = order_point(centers)
+    centers = centers.tolist()
     logger.info("cluster center: %d" %(len(centers)))
     membership = fcm.soft_predict(data)
     data_num = len(data)
@@ -189,22 +203,63 @@ def fcm_cluster(data, cluster_num, h):
             feature_sigma.append(h*a/b)
         sigma.append(feature_sigma)
     logger.info("cluster sigma: %d" %(len(sigma)))
-    # print("centers:",centers )
-    # print("sigma:", sigma)
     sigma = np.array(sigma)
+    centers = np.array(centers)
     return centers,sigma
 
-def token_cluster(dataset, rule_num):
+def save_cluster_info(dataset, centers, sigma):
+    info_path = options.base_path+'output/'+ dataset+'_cluster_info.csv'
+    headers = ['center_x', 'center_y', 'sigma_x', 'sigma_y']
+    rows = np.empty((len(centers), 4)).tolist()
+    for i in range(len(rows)):
+        rows[i][0] = centers[i][0]
+        rows[i][1] = centers[i][1]
+        rows[i][2] = sigma[i][0]
+        rows[i][3] = sigma[i][1]
+    with open(info_path, 'w', encoding='utf-8', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(headers)
+        writer.writerows(rows)
+
+def load_cluster_info(dataset):
+    info_path = options.base_path+'output/'+ dataset+'_cluster_info.csv'
+    centers = []
+    sigma = []
+    with open(info_path, encoding='utf-8') as f:
+        reader = csv.reader(f)
+        headers = next(reader)
+        print(headers)
+        for row in reader:
+            centers.append([row[0], row[1]])
+            sigma.append([row[2], row[3]])
+    return centers, sigma
+
+def save_tokenizer_vocab(dataset, vocab):
+    logger.info("save %s tokenizer vocab..." %(dataset))
+    vocab_path = options.base_path+'output/'+ dataset+'_tokenizer_vocab.pickle'
+    with open(vocab_path, 'wb') as f: # open file with write-mode
+        pickle.dump(vocab, f) # serialize and save object
+
+def load_tokenizer_vocab(dataset):
+    logger.info("load %s tokenizer vocab..." %(dataset))
+    vocab_path = options.base_path+'output/'+ dataset+'_tokenizer_vocab.pickle'
+    with open(vocab_path, 'rb') as f:
+        vocab = pickle.load(f)   # read file and build object
+    return vocab
+
+def token_cluster_iter(dataset, rule_num):
     raw_iter, raw_len, src_lang, tgt_lang = get_dataset_iter(dataset)
     vocab = Vocab(dataset)
-    tokenizer  = get_base_tokenizer("bert-base-uncased")
-    for _ in range(raw_len):
+    tokenizer  = get_tokenizer("basic_english")
+    for _ in tqdm(range(raw_len)):
         data = next(raw_iter)
         src = data['translation'][src_lang]
         tgt = data['translation'][tgt_lang]
-        raw_line =  src + ' ' + tgt
-        tokens = tokenizer.tokenize(raw_line)
+        tokens = tokenizer(src)
         vocab.addTokens(tokens)
+        tokens = tokenizer(tgt)
+        vocab.addTokens(tokens)
+    save_tokenizer_vocab(dataset, vocab)
     raw_iter, raw_len, src_lang, tgt_lang = get_dataset_iter(dataset)
     centers = []
     count = 0
@@ -220,54 +275,38 @@ def token_cluster(dataset, rule_num):
         centers.append(raw_centers)
     centers = np.array(centers).reshape((-1,2))
     centers, sigma = fcm_cluster(centers, cluster_num=rule_num, h=options.h)
+    save_cluster_info(dataset, centers, sigma)
+    logger.info('%s , centers:%s %s %s' %(dataset, str(centers[0]), str(centers[1]), str(centers[2])))
+    logger.info('%s , sigma:%s %s %s' %(dataset, str(sigma[0]), str(sigma[1]), str(sigma[2])))
     return centers, sigma, vocab
 
-# token_cluster('wmt14', options.rule_num)
-
-class FuzzySystem(nn.Module):
-    def __init__(self,feature_in, rule_num, center,sigma ):
-        super(FuzzySystem, self).__init__()
-        self.center = center
-        self.sigma = sigma
-        self.rule_num = rule_num
-        self.feature_num = feature_in
-    def fuzzy_layer(self, x):
-        delta = x - self.center # torch tensor broadcast
-        value = torch.square(torch.div(delta , self.sigma))
-        membership = torch.exp(-(value /2))
-        return membership
-    def fire_layer(self,membership):
-        # membership array
-        # rule_num * feature_num
-        products = torch.prod(membership, 1)
-        return products.float()
-    def norm_layer(self, products):
-        sum = torch.sum(products)
-        if sum.item() == 0:
-            print("sum is 0")
-            return products
-        products = products/sum
-        return products
-    def forward(self, x):
-        x = x.to(options.device)
-        membership = self.fuzzy_layer(x)
-        products = self.fire_layer(membership)
-        products = self.norm_layer(products)
-        output = products
-        return output
-
+def token_cluster(tokens, rule_num):
+    vocab = Vocab('cluster')
+    for data in tqdm(tokens, 'build vocab for cluster'):
+        vocab.addTokens(data[0])
+        vocab.addTokens(data[1])
+    token_features = []
+    for data in tqdm(tokens, 'token featurs'):
+        features = gen_token_features(data[0], vocab)
+        token_features.extend(features)
+        features = gen_token_features(data[1], vocab)
+        token_features.extend(features)
+    token_features = np.array(token_features)
+    centers,sigma = fcm_cluster(token_features, cluster_num=rule_num, h=options.h)
+    return centers, sigma, vocab
 
 class FuzzyTokenizer(nn.Module):
-    def __init__(self,feature_in, rule_num, dataset):
+    def __init__(self,feature_in, rule_num, centers, sigma, vocab):
         super(FuzzyTokenizer, self).__init__()
-        center, sigma, vocab = token_cluster(dataset, options.rule_num)
-        self.center = center
-        self.sigma = sigma
+        self.center =centers
+        self.sigma =sigma
         self.vocab = vocab
         self.rule_num = rule_num
         self.feature_num = feature_in
-        self.dataset = dataset
-        self.fs = FuzzySystem(feature_in, rule_num, center, sigma)
+        coarse_tokenzier = get_tokenizer("basic_english")
+        middle_tokenizer = get_base_tokenizer('bert-base-uncased')
+        fine_tokenizer = get_base_tokenizer('vs4000_wmt14_tokenizer')
+        self.tokenizers = [coarse_tokenzier, middle_tokenizer, fine_tokenizer]
     def fuzzy_layer(self, x):
         delta = x - self.center # torch tensor broadcast
         value = torch.square(torch.div(delta , self.sigma))
@@ -285,17 +324,75 @@ class FuzzyTokenizer(nn.Module):
             return products
         products = products/sum
         return products
+    def emit_layer(self, products, token):
+        _, idx = torch.max(products,dim=-1)
+        subtokens = self.tokenizers[idx](token)
+        return subtokens
     def forward(self, seq):
-        tokenizer  = get_base_tokenizer("bert-base-uncased")
-        tokens = tokenizer.tokenize(seq)
+        tokenizer  = get_tokenizer("basic_english")
+        tokens = tokenizer(seq)
+        output = []
         for token in tokens:
-            size = len(token)
-            count = self.vocab.word2count[token]
-            x = [size, count]
+            x = gen_token_feature(token, self.vocab)
+            x = torch.tensor(x).to(options.device)
             membership = self.fuzzy_layer(x)
             products = self.fire_layer(membership)
             products = self.norm_layer(products)
-        output = products
+            subtokens = self.emit_layer(products, token)
+            output.extend(subtokens)
         return output
 
 
+def train_tokenizers():
+    log_file = logger.add(options.base_path+'output/tokenizers-'+str(datetime.date.today()) +'.log')
+    train_tokenizer('wmt14', 1000)
+    train_tokenizer('wmt14', 4000)
+    train_tokenizer('wmt14', 10000)
+    train_tokenizer('wmt14', 50000)
+    train_tokenizer('wmt14', 100000)
+    train_tokenizer('wmt14', 150000)
+    train_tokenizer('wmt14', 200000)
+    train_tokenizer('wmt16', 1000)
+    train_tokenizer('wmt16', 4000)
+    train_tokenizer('wmt16', 10000)
+    train_tokenizer('opus100', 1000)
+    train_tokenizer('opus100', 4000)
+    train_tokenizer('opus100', 10000)
+    logger.remove(log_file)
+
+def dataset_token_clustering():
+    log_file=logger.add(options.base_path+'output/fuzzy-tokenizer-clustering-'+str(datetime.date.today()) +'.log')
+    token_cluster_iter('wmt14', options.rule_num)
+    token_cluster_iter('wmt16', options.rule_num)
+    token_cluster_iter('opus100', options.rule_num)
+    logger.remove(log_file)
+
+def run():
+    # dataset_token_clustering()
+    # points = [[1,2,3,4,5,6],[7,2,3,4,5,6],[3,2,3,4,5,6],[5,2,3,4,5,6]]
+    # pout = order_point(points)
+    # print(pout)
+    dataset = 'atis'
+    if dataset == 'wmt14' or dataset == 'wmt16' or dataset == 'opus100' or dataset == 'tatoeba':
+        centers, sigma = load_cluster_info(dataset)
+        vocab = load_tokenizer_vocab(dataset)
+    else:
+        tokenizer = get_tokenizer("basic_english")
+        train_tokens, valid_tokens,  test_tokens = read_raw_data(dataset, tokenizer)
+        tokens =  train_tokens + valid_tokens + test_tokens
+        centers, sigma,vocab = token_cluster(tokens, options.rule_num)
+        save_cluster_info(dataset, centers, sigma)
+        save_tokenizer_vocab(dataset, vocab)
+        centers = torch.from_numpy(centers).to(options.device)
+        sigma = torch.from_numpy(sigma).to(options.device)
+    fuzzy_tonkenizer = FuzzyTokenizer(options.feature_num, options.rule_num, centers, sigma, vocab)
+    for data in tokens[:100]:
+        sen = " ".join(i for i in data[0])
+        out = fuzzy_tonkenizer(sen)
+        print(out)
+        sen = " ".join(i for i in data[1])
+        out = fuzzy_tonkenizer(sen)
+        print(out)
+    return 0
+
+run()
