@@ -350,9 +350,6 @@ def read_geo_data(tokenizer):
         tgt = tokenizer(tgt)
         train_tokens[i] = [src, tgt]
     part = int(train_len/10)
-    # test_tokens= train_tokens[train_len-2*part:train_len-part]
-    # valid_tokens = train_tokens[train_len-part:]
-    # train_tokens=train_tokens[:train_len-2*part]
     test_tokens= train_tokens[train_len-part:]
     valid_tokens = train_tokens[train_len-part:]
     train_tokens=train_tokens[:train_len-part]

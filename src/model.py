@@ -3,6 +3,7 @@ import torch
 from setting import options
 import torch.nn.functional as F
 import math
+from loaddata import attach_eos, insert_sos,gen_sen_feature_map
 
 class PositionalEncoding(nn.Module):
     r"""Inject some information about the relative or absolute position of the tokens in the sequence.
@@ -107,8 +108,10 @@ class TransformerModel(nn.Module):
         self.encoder = TransEncoder(vocab_src_size, ninp, nhead, nhid, nlayers,dropout)
         self.decoder = TransDecoder(vocab_tgt_size, ninp, nhead, nhid, nlayers,dropout)
     def forward(self, src, tgt):
-        memory = self.encoder(src) # seq_len* batch* embedding_dim
-        output = self.decoder(tgt, memory)
+        src_with_eos = attach_eos(src)
+        tgt_with_sos = insert_sos(tgt)
+        memory = self.encoder(src_with_eos) # seq_len* batch* embedding_dim
+        output = self.decoder(tgt_with_sos, memory)
         return output
 
 class FuzzySystem(nn.Module):
@@ -193,13 +196,21 @@ class FuzzyDecoder(nn.Module):
         return output
 
 class FuzzyS2S(nn.Module):
-    def __init__(self,src_vocab_size, tgt_vocab_size , feature_num, rule_num, src_center,src_sigma,  tgt_center, tgt_sigma):
+    def __init__(self,vocab_src, vocab_tgt , feature_num, rule_num, src_center,src_sigma,  tgt_center, tgt_sigma):
         super(FuzzyS2S, self).__init__()
         self.name = 'fuzzys2s'
         self.rule_num = rule_num
+        self.vocab_src = vocab_src
+        self.vocab_tgt = vocab_tgt
+        src_vocab_size = vocab_src.n_words
+        tgt_vocab_size = vocab_tgt.n_words
         self.encoder = FuzzyEncoder(src_vocab_size, feature_num, rule_num, src_center, src_sigma).to(options.device)
         self.decoder = FuzzyDecoder(tgt_vocab_size, feature_num, rule_num, tgt_center, tgt_sigma).to(options.device)
-    def forward(self, src, src_features, tgt, tgt_features):
-        memory = self.encoder(src, src_features)
-        output = self.decoder(tgt, tgt_features, memory)
+    def forward(self, src, tgt):
+        src_with_eos = attach_eos(src)
+        tgt_with_sos = insert_sos(tgt)
+        src_features = torch.tensor(gen_sen_feature_map(self.vocab_src, src)).to(options.device)
+        tgt_features = torch.tensor(gen_sen_feature_map(self.vocab_tgt, tgt)).to(options.device)
+        memory = self.encoder(src_with_eos, src_features)
+        output = self.decoder(tgt_with_sos, tgt_features, memory)
         return output
