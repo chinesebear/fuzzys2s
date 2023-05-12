@@ -9,6 +9,7 @@ class Options:
 # project gloal parameter
 options = Options("Model")
 options.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+options.evaluate_path="/home/yang/github/evaluate/"
 options.base_path="/home/yang/github/fuzzys2s/"
 options.model_parameter_path = options.base_path+"output/"
 options.seed_id = 10

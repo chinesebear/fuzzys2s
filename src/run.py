@@ -11,7 +11,8 @@ from model import FuzzyS2S,TransformerModel
 from loaddata import read_data,fcm, gen_sen_feature_map,combine_sen_feature_map,insert_sos,attach_eos,get_base_tokenizer
 from setting import options, setting_info
 import os
-from evaluate import evaluate
+from evaluator import Evaluator
+from tqdm import tqdm
 
 def model_info(model):
     logger.info("[model %s]" %(model.name))
@@ -36,16 +37,36 @@ def loadmodel(model, file):
         model.load_state_dict(torch.load(options.model_parameter_path+file+".pth"))
         model.eval()
         logger.info("load %s model parameters done." %(file))
+
 def tensor2string(input_lang, source):
    output =  [input_lang.index2word[idx.item()] for idx in source]
    outstr = ''.join(x + ' ' for x in output)
    return outstr
 
-def predict(model, test_data, vocab_src, vocab_tgt):
+def idx2word(source, vocab):
+   word_list =  [vocab.index2word[idx] for idx in source]
+   return word_list
+
+def idx2string(source, vocab):
+   word_list =  [vocab.index2word[idx] for idx in source]
+   string_out = " ".join(word for word in word_list)
+   return string_out
+
+
+def predict(model, test_data, vocab_src, vocab_tgt, evaluator):
     count = 0
     total_acc = 0
     total_bleu = 0
     total_loss = 0
+    total_ppl = 0
+    total_precision = 0
+    total_recall =0
+    total_f1 = 0
+    total_mae = 0
+    total_mape = 0
+    total_smape = 0
+    total_rouge = np.array([0,0,0,0])
+    total_meteor = 0
     softmax = nn.Softmax(dim=-1)
     criterion = nn.CrossEntropyLoss()
     for src, tgt in test_data:
@@ -69,20 +90,57 @@ def predict(model, test_data, vocab_src, vocab_tgt):
             tgt_feature_map = torch.tensor(gen_sen_feature_map(vocab_tgt, predict.tolist())).to(options.device)
         loss = criterion(output, tgt_with_eos)
         output = softmax(output)
-        acc , bleu = evaluate(output , tgt_with_eos, vocab_tgt)
+        predict_idx_list = torch.argmax(output,dim=-1).tolist()
+        target_idx_list = tgt_with_eos.tolist()
+        predict_word_list = idx2word(predict_idx_list,vocab_tgt)
+        target_word_list = idx2word(predict_idx_list,vocab_tgt)
+        predict_string = idx2string(predict_idx_list,vocab_tgt)
+        target_string = idx2string(predict_idx_list,vocab_tgt)
+        acc , bleu = evaluator(predict_idx_list , target_idx_list)
+        ppl = evaluator.calc_ppl(loss.item())
+        precision = evaluator.calc_precision(predict_idx_list , target_idx_list)
+        recall = evaluator.calc_recall(predict_idx_list , target_idx_list)
+        f1 = evaluator.calc_f1(predict_idx_list , target_idx_list)
+        mae = evaluator.calc_mae(predict_idx_list , target_idx_list)
+        mape = evaluator.calc_mape(predict_idx_list , target_idx_list)
+        smape = evaluator.calc_smape(predict_idx_list , target_idx_list)
+        rouge = evaluator.calc_rouge(prediction=predict_string, reference=target_string)
+        meteor= evaluator.calc_meteor(prediction=predict_word_list, reference=target_word_list)
+
         count = count+ 1
         total_loss =total_loss + loss.item()
         total_acc = total_acc +acc
         total_bleu = total_bleu + bleu
+        total_ppl = total_ppl + ppl
+        total_precision = total_precision + precision
+        total_recall = total_recall + recall
+        total_f1 = total_f1 + f1
+        total_mae = total_mae + mae
+        total_mape = total_mape + mape
+        total_smape = total_smape + smape
+        total_rouge = total_rouge + np.array(rouge)
+        total_meteor = total_meteor + meteor
         if count % int(len(test_data)/10) == 0 :
             logger.info("------------------------------------------------------------%s---------------------------------------------------------------------"%(model.name))
             logger.info("[source ] %s" %(tensor2string(vocab_src,src_with_eos)))
             logger.info("[target ] %s" %(tensor2string(vocab_tgt,tgt_with_eos)))
             logger.info("[predict] %s" %(tensor2string(vocab_tgt,predict)))
-    return total_loss/count, total_acc/count,total_bleu/count
+    loss = total_loss/count
+    acc = total_acc/count
+    bleu = total_bleu/count
+    ppl = total_ppl/count
+    precision = total_precision/count
+    recall = total_recall/count
+    f1 = total_f1/count
+    mae = total_mae/count
+    mape = total_mape/count
+    smape = total_smape/count
+    rouge= total_rouge/count
+    meteor = total_meteor/count
+    return loss, acc, bleu, ppl, precision, recall, f1, mae, mape, smape,rouge.tolist(), meteor
 
 
-def valid(model, valid_data, vocab_src, vocab_tgt):
+def valid(model, valid_data, vocab_src, vocab_tgt, evaluator):
     count = 0
     total_acc = 0
     total_bleu = 0
@@ -103,7 +161,9 @@ def valid(model, valid_data, vocab_src, vocab_tgt):
         output = output.squeeze()
         loss = criterion(output, tgt_with_eos)
         output = softmax(output)
-        acc , bleu = evaluate(output , tgt_with_eos, vocab_tgt)
+        predict_idx_list = torch.argmax(output,dim=-1).tolist()
+        target_idx_list = tgt_with_eos.tolist()
+        acc , bleu = evaluator(predict_idx_list , target_idx_list)
         count = count+ 1
         total_loss =total_loss + loss.item()
         total_acc = total_acc +acc
@@ -124,56 +184,57 @@ def s2s_task(dataset_name, tokenizer):
     model = FuzzyS2S(vocab_src.n_words, vocab_tgt.n_words, options.feature_num, options.rule_num, center_src, sigma_src, center_tgt, sigma_tgt).to(options.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=options.learning_rate, weight_decay=0)
     criterion = nn.CrossEntropyLoss()
+    evaluator = Evaluator()
     model_info(model)
-    # loadmodel(model, model.name + '-' +dataset_name)
-    for epoch in range(options.epoch):
-        count = 0
-        total_loss = 0
-        for src, tgt in train_data:
-            if len(src) > options.sen_len_max or len(tgt) > options.sen_len_max:
-                continue
-            if len(src) == 7 or len(src) == 7:
-                continue
-            src_with_eos = attach_eos(src)
-            tgt_with_sos = insert_sos(tgt)
-            tgt_with_eos = attach_eos(tgt)
-            src_feature_map = torch.tensor(gen_sen_feature_map(vocab_src, src)).to(options.device)
-            tgt_feature_map = torch.tensor(gen_sen_feature_map(vocab_tgt, tgt)).to(options.device)
-            optimizer.zero_grad()
-            output = model(src_with_eos,src_feature_map, tgt_with_sos, tgt_feature_map)
-            output = output.squeeze()
-            loss = criterion(output, tgt_with_eos)
-            loss.backward()
-            optimizer.step()
-            count = count+ 1
-            total_loss =total_loss + loss.item()
-            if count % int(len(train_data)/10) ==0:
-                valid_loss, acc, bleu = valid(model, valid_data,vocab_src, vocab_tgt)
-                logger.info("[%s-%s]epoch: %d, count: %d, train loss: %.4f, valid loss: %.4f, acc: %.2f, bleu:%.2f" %(model_name, dataset_name, epoch, count, total_loss/count, valid_loss,acc*100, bleu*100))
+    loadmodel(model, model.name + '-' +dataset_name)
+    # for epoch in range(options.epoch):
+    #     count = 0
+    #     total_loss = 0
+    #     for src, tgt in tqdm(train_data):
+    #         if len(src) > options.sen_len_max or len(tgt) > options.sen_len_max:
+    #             continue
+    #         if len(src) == 7 or len(src) == 7:
+    #             continue
+    #         src_with_eos = attach_eos(src)
+    #         tgt_with_sos = insert_sos(tgt)
+    #         tgt_with_eos = attach_eos(tgt)
+    #         src_feature_map = torch.tensor(gen_sen_feature_map(vocab_src, src)).to(options.device)
+    #         tgt_feature_map = torch.tensor(gen_sen_feature_map(vocab_tgt, tgt)).to(options.device)
+    #         optimizer.zero_grad()
+    #         output = model(src_with_eos,src_feature_map, tgt_with_sos, tgt_feature_map)
+    #         output = output.squeeze()
+    #         loss = criterion(output, tgt_with_eos)
+    #         loss.backward()
+    #         optimizer.step()
+    #         count = count+ 1
+    #         total_loss =total_loss + loss.item()
+    #         if count % int(len(train_data)/10) ==0:
+    #             valid_loss, acc, bleu = valid(model, valid_data,vocab_src, vocab_tgt, evaluator)
+    #             logger.info("[%s-%s]epoch: %d, count: %d, train loss: %.4f, valid loss: %.4f, acc: %.2f, bleu:%.2f" %(model_name, dataset_name, epoch, count, total_loss/count, valid_loss,acc*100, bleu*100))
 
-                # for name, parms in model.named_parameters():
-                #     # encoder.rfs_block.center
-                #     # encoder.rfs_block.sigma
-                #     # encoder.rfs_block.recurrent_weight
-                #     #
-                #     # decoder.rfs_block.center
-                #     # decoder.rfs_block.sigma
-                #     # decoder.rfs_block.recurrent_weight
-                #     #
-                #     # decoder.fc.weight
-                #     # decoder.fc.bias
-                #     if name == "decoder.mlp.fc.weight":
-                #         print('-->name:', name)
-                #         # print('-->para:', parms)
-                #         print('-->grad_requirs:',parms.requires_grad)
-                #         print('-->grad_value:',parms.grad)
-    savemodel(model, model.name + '-' +dataset_name)
-    test_loss, acc, bleu = predict(model, test_data, vocab_src, vocab_tgt)
-    logger.info("[%s-%s]test loss: %.4f, acc: %.2f, bleu: %.2f" %(model.name,dataset_name , test_loss,acc*100, bleu*100))
+    #             # for name, parms in model.named_parameters():
+    #             #     # encoder.rfs_block.center
+    #             #     # encoder.rfs_block.sigma
+    #             #     # encoder.rfs_block.recurrent_weight
+    #             #     #
+    #             #     # decoder.rfs_block.center
+    #             #     # decoder.rfs_block.sigma
+    #             #     # decoder.rfs_block.recurrent_weight
+    #             #     #
+    #             #     # decoder.fc.weight
+    #             #     # decoder.fc.bias
+    #             #     if name == "decoder.mlp.fc.weight":
+    #             #         print('-->name:', name)
+    #             #         # print('-->para:', parms)
+    #             #         print('-->grad_requirs:',parms.requires_grad)
+    #             #         print('-->grad_value:',parms.grad)
+    # savemodel(model, model.name + '-' +dataset_name)
+    loss, acc, bleu, ppl, precision, recall, f1, mae, mape, smape,rouge, meteor = predict(model, test_data, vocab_src, vocab_tgt, evaluator)
+    logger.info("[%s-%s]acc: %.2f, bleu: %.2f" %(model.name,dataset_name ,acc*100, bleu*100))
     logger.remove(log_file)
-    return model_name, dataset_name, acc, bleu
+    return model_name, dataset_name, acc, bleu, ppl, precision, recall, f1, mae, mape, smape,rouge, meteor
 
-def predict_trans(model, test_data, vocab_src, vocab_tgt):
+def predict_trans(model, test_data, vocab_src, vocab_tgt, evaluator):
     count = 0
     total_acc = 0
     total_bleu = 0
@@ -198,7 +259,7 @@ def predict_trans(model, test_data, vocab_src, vocab_tgt):
         predict = tgt_with_sos[1:]
         loss = criterion(output, tgt_with_eos)
         output = softmax(output)
-        acc , bleu = evaluate(output , tgt_with_eos, vocab_tgt)
+        acc , bleu = evaluator(output , tgt_with_eos, vocab_tgt)
         count = count+ 1
         total_loss =total_loss + loss.item()
         total_acc = total_acc +acc
@@ -210,7 +271,7 @@ def predict_trans(model, test_data, vocab_src, vocab_tgt):
             logger.info("[predict] %s" %(tensor2string(vocab_tgt,predict)))
     return total_loss/count, total_acc/count,total_bleu/count
 
-def valid_trans(model, valid_data, vocab_src, vocab_tgt):
+def valid_trans(model, valid_data, vocab_src, vocab_tgt, evaluator):
     count = 0
     total_acc = 0
     total_bleu = 0
@@ -228,7 +289,7 @@ def valid_trans(model, valid_data, vocab_src, vocab_tgt):
         output = model(src_with_eos, tgt_with_sos).squeeze()
         loss = criterion(output, tgt_with_eos)
         output = softmax(output)
-        acc , bleu = evaluate(output , tgt_with_eos, vocab_tgt)
+        acc , bleu = evaluator(output , tgt_with_eos, vocab_tgt)
         count = count+ 1
         total_loss =total_loss + loss.item()
         total_acc = total_acc +acc
@@ -250,12 +311,13 @@ def trans_task(dataset_name, tokenizer):
                              options.trans.drop_out).to(options.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=options.learning_rate, weight_decay=0)
     criterion = nn.CrossEntropyLoss()
+    evaluator = Evaluator(vocab_src, vocab_tgt)
     model_info(model)
     # loadmodel(model, model.name + '-' +dataset_name)
     for epoch in range(options.epoch):
         count = 0
         total_loss = 0
-        for src, tgt in train_data:
+        for src, tgt in tqdm(train_data):
             if len(src) > options.sen_len_max or len(tgt) > options.sen_len_max:
                 continue
             if len(src) == 7 or len(src) == 7:
@@ -291,26 +353,32 @@ def trans_task(dataset_name, tokenizer):
                 #         print('-->grad_requirs:',parms.requires_grad)
                 #         print('-->grad_value:',parms.grad)
     savemodel(model, model.name + '-' +dataset_name)
-    test_loss, acc, bleu = predict_trans(model, test_data, vocab_src, vocab_tgt)
+    test_loss, acc, bleu = predict_trans(model, test_data, vocab_src, vocab_tgt, evaluator)
     logger.info("[%s-%s]test loss: %.4f, acc: %.2f, bleu: %.2f" %(model.name,dataset_name , test_loss,acc*100, bleu*100))
     logger.remove(log_file)
     return model_name, dataset_name, acc, bleu
 
 def run():
     # datasets = ['opus_euconst','hearthstone','magic', 'spider','samsum', 'gem', 'xlsum','django','conala', 'geo', 'atis']
-    datasets =['django']
+    datasets =['geo']
     results = []
     tokenizer = get_tokenizer("basic_english")
     # tokenizer = get_base_tokenizer('bert-base-uncased')
     for dataset in datasets:
         # model_name, dataset_name, acc, bleu = trans_task(dataset, tokenizer)
         # results.append([model_name, dataset_name, acc, bleu])
-        model_name, dataset_name, acc, bleu = s2s_task(dataset, tokenizer)
+        model_name, dataset_name, acc, bleu, ppl, precision, recall, f1, mae, mape, smape,rouge, meteor = s2s_task(dataset, tokenizer)
         results.append([model_name, dataset_name, acc, bleu])
     log_file = logger.add(options.base_path+'output/result-'+str(datetime.date.today()) +'.log')
     logger.info("------------------------------------result------------------------------------------" )
     for model_name, dataset_name, acc, bleu in results:
-        logger.info("model: %s, datset: %s, acc: %.2f, bleu: %.2f" %(model_name, dataset_name, acc*100, bleu*100))
+        logger.info("model: %s, datset: %s, acc   : %.2f, bleu: %.2f" %(model_name, dataset_name, acc*100, bleu*100))
+        logger.info("model: %s, datset: %s, ppl   : %.2f, precision: %.2f" %(model_name, dataset_name, ppl*100, precision*100))
+        logger.info("model: %s, datset: %s, recall: %.2f, f1: %.2f" %(model_name, dataset_name, recall*100, f1*100))
+        logger.info("model: %s, datset: %s, mae   : %.2f, mape: %.2f" %(model_name, dataset_name, mae*100, mape*100))
+        logger.info("model: %s, datset: %s, rouge1: %.2f, rouge2: %.2f" %(model_name, dataset_name, rouge[0]*100, rouge[1]*100))
+        logger.info("model: %s, datset: %s, rougeL: %.2f, rougeLsum: %.2f" %(model_name, dataset_name, rouge[2]*100, rouge[3]*100))
+        logger.info("model: %s, datset: %s, smape : %.2f, meteor: %.2f" %(model_name, dataset_name, smape*100, meteor*100))
     logger.remove(log_file)
     return 0
 run()

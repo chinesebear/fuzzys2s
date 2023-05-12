@@ -162,6 +162,8 @@ class FuzzyEncoder(nn.Module):
         output = 0
         for i in range(self.rule_num):
             product = products[i]
+            if math.isnan(product):
+                product = 1.0
             output = output + product * self.encoder[i](src)
         return output
 
@@ -185,6 +187,8 @@ class FuzzyDecoder(nn.Module):
         output = 0
         for i in range(self.rule_num):
             product = products[i]
+            if math.isnan(product):
+                product = 1.0
             output = output + product * self.decoder[i](tgt, memory)
         return output
 
