@@ -14,6 +14,7 @@ from tokenizers.models import BPE,WordPiece,Unigram
 from tokenizers.pre_tokenizers import Whitespace
 from tokenizers.trainers import BpeTrainer,WordPieceTrainer, UnigramTrainer
 from tqdm import tqdm
+import random
 
 class Vocab:
     def __init__(self, name):
@@ -93,44 +94,47 @@ def insert_sos(sentence):
 
 def gen_token_vectors(vocab_src, vocab_tgt, tokens):
     token_vectors =[]
-    for row in tokens:
+    for row in tqdm(tokens,'token vector'):
         src = [vocab_src.word2index[word]  for word in row[0]]
         tgt = [vocab_tgt.word2index[word]  for word in row[1]]
         token_vectors.append([src, tgt])
     return token_vectors
 
-def read_raw_tokens(dataset, src_lang, tgt_lang, tokenizer):
+def read_raw_tokens(dataset, src_lang, tgt_lang, tokenizer, sen_out=False):
     train_len = options.tok.train_len # dataset['train'].num_rows
-    test_len = options.tok.test_len # dataset['test'].num_rows
-    valid_len = options.tok.valid_len # dataset['validation'].num_rows
-    train_raw_tokens = np.empty([train_len], dtype=int).tolist()
+    test_len = dataset['test'].num_rows
+    valid_len = dataset['validation'].num_rows
+    train_data = np.empty([train_len], dtype=int).tolist()
     train_iter = iter(dataset['train'])
     for i in tqdm(range(train_len),'read train data'):
         data = next(train_iter)
         src = data['translation'][src_lang]
         tgt = data['translation'][tgt_lang]
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        train_raw_tokens[i] = [src, tgt]
-    test_raw_tokens = np.empty([test_len], dtype=int).tolist()
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        train_data[i] = [src, tgt]
+    test_data = np.empty([test_len], dtype=int).tolist()
     test_iter = iter(dataset['test'])
     for i in range(test_len):
         data = next(test_iter)
         src = data['translation'][src_lang]
         tgt = data['translation'][tgt_lang]
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        test_raw_tokens[i] = [src, tgt]
-    valid_raw_tokens = np.empty([valid_len], dtype=int).tolist()
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        test_data[i] = [src, tgt]
+    valid_data = np.empty([valid_len], dtype=int).tolist()
     valid_iter = iter(dataset['validation'])
     for i in range(valid_len):
         data = next(valid_iter)
         src = data['translation'][src_lang]
         tgt = data['translation'][tgt_lang]
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        valid_raw_tokens[i] = [src, tgt]
-    return train_raw_tokens, test_raw_tokens, valid_raw_tokens
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        valid_data[i] = [src, tgt]
+    return train_data, test_data, valid_data
 
 def download_dataset():
     datasets = [
@@ -140,7 +144,7 @@ def download_dataset():
         # ['wmt19', 'de-en'],
         # ['lambada',''],
         ['spider', ''],
-        # ['wikisql', ''],
+        ['htriedman/wikisql', ''],
         ['dvitel/geo', ''],
         ['fathyshalab/atis_intents', ''],
         ['AhmedSSoliman/DJANGO', ''],
@@ -152,6 +156,7 @@ def download_dataset():
         ["samsum", ''],
         ["gem", 'common_gen'],
         ["GEM/xlsum", 'french'],
+        ['xsum', ''],
     ]
     for info in datasets:
         name = info[0]
@@ -209,197 +214,214 @@ def gen_feature_data(train_tokens, valid_tokens,  test_tokens):
     test_data = gen_token_vectors(vocab_src, vocab_tgt, test_tokens)
     return train_data, valid_data, test_data, vocab_src, vocab_tgt
 
-def read_tatoeba_data(tokenizer):
+def read_tatoeba_data(tokenizer=None, sen_out=False):
     logger.info("read raw data")
-    fd = open(options.base_path+"/doc/tatoeba/fra.txt",encoding = "utf-8")
+    fd = open(options.base_path+"doc/tatoeba/fra-eng/fra.txt",encoding = "utf-8")
+    # fd = open(options.base_path+"/doc/tatoeba/deu-eng/deu.txt",encoding = "utf-8")
     lines = fd.readlines()
     logger.info("dataset:tatoeba, total:%d" %(len(lines)))
-    tokens = np.empty((len(lines),2)).tolist() #  src-tgt token pairs
+    random.shuffle(lines)
+    logger.info("dataset:tatoeba, data random shffle done")
+    data = np.empty((len(lines),2)).tolist() #  src-tgt token pairs or sen pairs
     line_iter = iter(lines)
     for i in tqdm(range(len(lines)), 'read data'):
         line = next(line_iter)
         sen = line.split('\t')
-        src = sen[0] # en
-        tgt = sen[1] # fr
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        tokens[i][0] = src
-        tokens[i][1] = tgt
+        src = sen[0] # eng eng
+        tgt = sen[1] # fra deu
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        data[i][0] = src
+        data[i][1] = tgt
     fd.close()
-    total = len(tokens)
+    total = len(data)
     part = 2000
-    train_tokens = tokens[:total - part*2]
-    valid_tokens = tokens[total - part*2:total - part]
-    test_tokens = tokens[total - part:]
-    logger.info("dataset: tatoeba, train: %d, valid: %d, test: %d" %(len(train_tokens),len(valid_tokens), len(test_tokens)))
-    return train_tokens, valid_tokens,  test_tokens
+    train_data = data[:total - part*2]
+    valid_data = data[total - part*2:total - part]
+    test_data = data[total - part:]
+    logger.info("dataset: tatoeba, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data, test_data
 
-def read_wmt14_data(tokenizer):
+def read_wmt14_data(tokenizer=None, sen_out=False):
     logger.info("read wmt14 data")
     src_lang = 'en'
-    tgt_lang = 'de'
-    dataset = read_dataset('wmt14', 'de-en')
+    tgt_lang = 'fr'
+    dataset = read_dataset('wmt14', 'fr-en')
     logger.info("read raw tokens")
-    train_tokens, test_tokens,valid_tokens = read_raw_tokens(dataset, src_lang, tgt_lang, tokenizer)
-    logger.info("dataset: wmt14, train: %d, valid: %d, test: %d" %(len(train_tokens),len(valid_tokens), len(test_tokens)))
-    return train_tokens, valid_tokens,  test_tokens
+    train_data, valid_data,  test_data = read_raw_tokens(dataset, src_lang, tgt_lang, tokenizer, sen_out)
+    logger.info("dataset: wmt14, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data,  test_data
 
-def read_wmt16_data(tokenizer):
+def read_wmt16_data(tokenizer=None, sen_out=False):
     logger.info("read wmt16 data")
     src_lang = 'en'
     tgt_lang = 'de'
     dataset = read_dataset('wmt16', 'de-en')
     logger.info("read raw tokens")
-    train_tokens, test_tokens,valid_tokens = read_raw_tokens(dataset, src_lang, tgt_lang, tokenizer)
-    logger.info("dataset: wmt16, train: %d, valid: %d, test: %d" %(len(train_tokens),len(valid_tokens), len(test_tokens)))
-    return train_tokens, valid_tokens,  test_tokens
+    train_data, valid_data,  test_data = read_raw_tokens(dataset, src_lang, tgt_lang, tokenizer, sen_out)
+    logger.info("dataset: wmt16, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data,  test_data
 
-def read_opus100_data(tokenizer):
+def read_opus100_data(tokenizer=None, sen_out=False):
     logger.info("read opus100")
     src_lang = 'en'
     tgt_lang = 'fr'
     dataset = read_dataset('opus100', 'en-fr')
     logger.info("read raw data")
-    train_tokens, test_tokens,valid_tokens = read_raw_tokens(dataset, src_lang, tgt_lang,tokenizer)
-    logger.info("dataset: opus100, train: %d, valid: %d, test: %d" %(len(train_tokens),len(valid_tokens), len(test_tokens)))
-    return train_tokens, valid_tokens,  test_tokens
+    train_data, valid_data,  test_data = read_raw_tokens(dataset, src_lang, tgt_lang,tokenizer,sen_out)
+    logger.info("dataset: opus100, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    test_data.pop(1679)
+    test_data.pop(1678)
+    return train_data, valid_data,  test_data
 
-def read_hearthstone_data(tokenizer):
+def read_hearthstone_data(tokenizer=None, sen_out=False):
     logger.info("read raw data")
     train_lines = read_line_pair(options.base_path+'doc/hearthstone/train_hs.in', options.base_path+'doc/hearthstone/train_hs.out')
     valid_lines = read_line_pair(options.base_path+'doc/hearthstone/dev_hs.in', options.base_path+'doc/hearthstone/dev_hs.out')
     test_lines = read_line_pair(options.base_path+'doc/hearthstone/test_hs.in', options.base_path+'doc/hearthstone/test_hs.out')
-    train_tokens=[]
-    valid_tokens=[]
-    test_tokens=[]
+    if sen_out:
+        logger.info("dataset: hearthstone, train: %d, valid: %d, test: %d" %(len(train_lines),len(train_lines), len(test_lines)))
+        return train_lines, train_lines, test_lines
+    train_data=[]
+    valid_data=[]
+    test_data=[]
     for src, tgt in train_lines:
         src_tokens = tokenizer(src)
         tgt_tokens = tokenizer(tgt)
-        train_tokens.append([src_tokens, tgt_tokens])
+        train_data.append([src_tokens, tgt_tokens])
     for src, tgt in valid_lines:
         src_tokens = tokenizer(src)
         tgt_tokens = tokenizer(tgt)
-        valid_tokens.append([src_tokens, tgt_tokens])
+        valid_data.append([src_tokens, tgt_tokens])
     for src, tgt in test_lines:
         src_tokens = tokenizer(src)
         tgt_tokens = tokenizer(tgt)
-        test_tokens.append([src_tokens, tgt_tokens])
-    logger.info("dataset: hearthstone, train: %d, valid: %d, test: %d" %(len(train_tokens),len(valid_tokens), len(test_tokens)))
-    return train_tokens, valid_tokens,  test_tokens
+        test_data.append([src_tokens, tgt_tokens])
+    logger.info("dataset: hearthstone, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data,  test_data
 
-def read_magic_data(tokenizer):
+def read_magic_data(tokenizer=None, sen_out=False):
     logger.info("read raw data")
     train_lines = read_line_pair(options.base_path+'doc/magic/train_magic.in', options.base_path+'doc/magic/train_magic.out')
     valid_lines = read_line_pair(options.base_path+'doc/magic/dev_magic.in', options.base_path+'doc/magic/dev_magic.out')
     test_lines = read_line_pair(options.base_path+'doc/magic/test_magic.in', options.base_path+'doc/magic/test_magic.out')
-    train_tokens=[]
-    valid_tokens=[]
-    test_tokens=[]
+    if sen_out:
+        logger.info("dataset: hearthstone, train: %d, valid: %d, test: %d" %(len(train_lines),len(train_lines), len(test_lines)))
+        return train_lines, train_lines, test_lines
+    train_data=[]
+    valid_data=[]
+    test_data=[]
     for src, tgt in train_lines:
         src_tokens = tokenizer(src)
         tgt_tokens = tokenizer(tgt)
-        train_tokens.append([src_tokens, tgt_tokens])
+        train_data.append([src_tokens, tgt_tokens])
     for src, tgt in valid_lines:
         src_tokens = tokenizer(src)
         tgt_tokens = tokenizer(tgt)
-        valid_tokens.append([src_tokens, tgt_tokens])
+        valid_data.append([src_tokens, tgt_tokens])
     for src, tgt in test_lines:
         src_tokens = tokenizer(src)
         tgt_tokens = tokenizer(tgt)
-        test_tokens.append([src_tokens, tgt_tokens])
-    logger.info("dataset: magic, train: %d, valid: %d, test: %d" %(len(train_tokens),len(valid_tokens), len(test_tokens)))
-    return train_tokens, valid_tokens,  test_tokens
+        test_data.append([src_tokens, tgt_tokens])
+    logger.info("dataset: magic, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data,  test_data
 
-def read_spider_data(tokenizer):
+def read_spider_data(tokenizer=None, sen_out=False):
     logger.info("read spider data")
     dataset = read_dataset('spider', '')
     logger.info("read raw tokens")
     train_len = dataset['train'].num_rows
     valid_len = dataset['validation'].num_rows
-    train_tokens = np.empty([train_len], dtype=int).tolist()
+    train_data = np.empty([train_len], dtype=int).tolist()
     train_iter = iter(dataset['train'])
     for i in range(train_len):
         data = next(train_iter)
         src = data['question_toks']
         tgt = data['query_toks']
-        train_tokens[i] = [src, tgt]
-    valid_tokens = np.empty([valid_len], dtype=int).tolist()
+        train_data[i] = [src, tgt]
+    valid_data = np.empty([valid_len], dtype=int).tolist()
     valid_iter = iter(dataset['validation'])
     for i in range(valid_len):
         data = next(valid_iter)
         src = data['question_toks']
         tgt = data['query_toks']
-        valid_tokens[i] = [src, tgt]
-    test_tokens= valid_tokens[int(valid_len/2):]
-    valid_tokens = valid_tokens[:int(valid_len/2)]
-    logger.info("dataset: spider, train: %d, valid: %d, test: %d" %(len(train_tokens),len(valid_tokens), len(test_tokens)))
-    return train_tokens, valid_tokens,  test_tokens
+        valid_data[i] = [src, tgt]
+    test_data= valid_data[int(valid_len/2):]
+    valid_data = valid_data[:int(valid_len/2)]
+    logger.info("dataset: spider, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data,  test_data
 
-def read_geo_data(tokenizer):
+def read_geo_data(tokenizer=None, sen_out=False):
     logger.info("read geo data")
     dataset = read_dataset('dvitel/geo', '')
     logger.info("read raw tokens")
     train_len = dataset['train'].num_rows
-    train_tokens = np.empty([train_len], dtype=int).tolist()
+    train_data = np.empty([train_len], dtype=int).tolist()
+    random.shuffle(dataset['train'])
     train_iter = iter(dataset['train'])
     for i in range(train_len):
         data = next(train_iter)
         src = data['source']
         tgt = data['target']
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        train_tokens[i] = [src, tgt]
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        train_data[i] = [src, tgt]
     part = int(train_len/10)
-    test_tokens= train_tokens[train_len-part:]
-    valid_tokens = train_tokens[train_len-part:]
-    train_tokens=train_tokens[:train_len-part]
-    logger.info("dataset: geo, train: %d, valid: %d, test: %d" %(len(train_tokens),len(valid_tokens), len(test_tokens)))
-    return train_tokens, valid_tokens,  test_tokens
+    test_data= train_data[train_len-part:]
+    valid_data = train_data[train_len-part:]
+    train_data= train_data[:train_len-part]
+    logger.info("dataset: geo, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data,  test_data
 
-def read_django_data(tokenizer):
+def read_django_data(tokenizer=None, sen_out=False):
     logger.info("read django data")
     dataset = read_dataset('AhmedSSoliman/DJANGO', '')
     logger.info("read raw tokens")
     train_len = dataset['train'].num_rows
     valid_len = dataset['validation'].num_rows
     test_len = dataset['test'].num_rows
-    train_tokens = np.empty([train_len], dtype=int).tolist()
+    train_data = np.empty([train_len], dtype=int).tolist()
     train_iter = iter(dataset['train'])
     for i in range(train_len):
         data = next(train_iter)
         src = data['nl']
         tgt = data['code']
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        train_tokens[i] = [src, tgt]
-    valid_tokens = np.empty([valid_len], dtype=int).tolist()
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        train_data[i] = [src, tgt]
+    valid_data = np.empty([valid_len], dtype=int).tolist()
     valid_iter = iter(dataset['validation'])
     for i in range(valid_len):
         data = next(valid_iter)
         src = data['nl']
         tgt = data['code']
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        valid_tokens[i] = [src, tgt]
-    test_tokens = np.empty([test_len], dtype=int).tolist()
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        valid_data[i] = [src, tgt]
+    test_data = np.empty([test_len], dtype=int).tolist()
     test_iter = iter(dataset['test'])
     for i in range(test_len):
         data = next(test_iter)
         src = data['nl']
         tgt = data['code']
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        test_tokens[i] = [src, tgt]
-    logger.info("dataset: django, train: %d, valid: %d, test: %d" %(len(train_tokens),len(valid_tokens), len(test_tokens)))
-    return train_tokens, valid_tokens,  test_tokens
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        test_data[i] = [src, tgt]
+    logger.info("dataset: django, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data,  test_data
 
-def read_conala_data(tokenizer):
+def read_conala_data(tokenizer=None, sen_out=False):
     logger.info("read conala data")
     dataset = read_dataset('neulab/conala', '')
     logger.info("read raw tokens")
     train_len = dataset['train'].num_rows
     test_len = dataset['test'].num_rows
-    train_tokens = np.empty([train_len], dtype=int).tolist()
+    train_data = np.empty([train_len], dtype=int).tolist()
     train_iter = iter(dataset['train'])
     for i in range(train_len):
         data = next(train_iter)
@@ -409,10 +431,11 @@ def read_conala_data(tokenizer):
             src = data['rewritten_intent']
         src = src.replace('\\', '#').replace('/', '#')
         tgt = data['snippet'].replace('\\', '#').replace('/', '#')
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        train_tokens[i] = [src, tgt]
-    test_tokens = np.empty([test_len], dtype=int).tolist()
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        train_data[i] = [src, tgt]
+    test_data = np.empty([test_len], dtype=int).tolist()
     test_iter = iter(dataset['test'])
     for i in range(test_len):
         data = next(test_iter)
@@ -424,212 +447,229 @@ def read_conala_data(tokenizer):
         tgt = data['snippet'].replace('\\', '#').replace('/', '#')
         src = tokenizer(src)
         tgt = tokenizer(tgt)
-        test_tokens[i] = [src, tgt]
+        test_data[i] = [src, tgt]
     part = int(test_len/2)
-    valid_tokens = train_tokens[:part]
-    test_tokens = test_tokens[part:]
-    logger.info("dataset: conala, train: %d, valid: %d, test: %d" %(len(train_tokens),len(valid_tokens), len(test_tokens)))
-    return train_tokens, valid_tokens,  test_tokens
+    valid_data = test_data[:part]
+    test_data =  test_data[part:]
+    logger.info("dataset: conala, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data,  test_data
 
-def read_opus_euconst_data(tokenizer):
+def read_opus_euconst_data(tokenizer=None, sen_out=False):
     logger.info("read opus_euconst data")
-    dataset = read_dataset('neulab/conala', '')
+    dataset = read_dataset('opus_euconst', 'en-fr')
     logger.info("read raw tokens")
+    src_lang = 'en'
+    tgt_lang = 'fr'
     train_len = dataset['train'].num_rows
-    train_tokens = np.empty([train_len], dtype=int).tolist()
-    train_iter = iter(dataset['train'])
+    logger.info("dataset:opus_euconst, total: %d"  %(train_len))
+    train_raw_data = dataset['train']
+    train_iter = iter(train_raw_data)
+    train_data = np.empty([train_len], dtype=int).tolist()
     for i in range(train_len):
         data = next(train_iter)
-        if data['rewritten_intent'] == None:
-            src = data['intent']
-        else:
-            src = data['rewritten_intent']
-        src = src.replace('\\', '#').replace('/', '#')
-        tgt = data['snippet'].replace('\\', '#').replace('/', '#')
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        train_tokens[i] = [src, tgt]
+        src = data['translation'][src_lang]
+        tgt = data['translation'][tgt_lang]
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        train_data[i] = [src, tgt]
+    random.shuffle(train_data)
+    logger.info("dataset:opus_euconst, data random shffle done")
     part = int(train_len/10)
-    valid_tokens = train_tokens[train_len -2 *part: train_len - part]
-    test_tokens = train_tokens[train_len -part:]
-    train_tokens = train_tokens[:train_len -2*part]
-    logger.info("dataset: opus_euconst, train: %d, valid: %d, test: %d" %(len(train_tokens),len(valid_tokens), len(test_tokens)))
-    return train_tokens, valid_tokens,  test_tokens
+    valid_data = train_data[train_len -2 *part: train_len - part]
+    test_data = train_data[train_len -part:]
+    train_data = train_data[:train_len -2*part]
+    logger.info("dataset: opus_euconst, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data,  test_data
 
-def read_cnn_dailymail_data(tokenizer):
+def read_cnn_dailymail_data(tokenizer=None, sen_out=False):
     logger.info("read cnn_dailymail data")
     dataset = read_dataset('cnn_dailymail', '1.0.0')
     logger.info("read raw tokens")
     train_len = dataset['train'].num_rows
     valid_len = dataset['validation'].num_rows
     test_len = dataset['test'].num_rows
-    train_tokens = np.empty([train_len], dtype=int).tolist()
+    train_data = np.empty([train_len], dtype=int).tolist()
     train_iter = iter(dataset['train'])
     for i in tqdm(range(train_len), 'read train data'):
         data = next(train_iter)
         src = data['article']
         tgt = data['highlights']
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        train_tokens[i] = [src, tgt]
-    valid_tokens = np.empty([valid_len], dtype=int).tolist()
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        train_data[i] = [src, tgt]
+    valid_data = np.empty([valid_len], dtype=int).tolist()
     valid_iter = iter(dataset['validation'])
     for i in tqdm(range(valid_len), 'read valid data'):
         data = next(valid_iter)
         src = data['article']
         tgt = data['highlights']
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        valid_tokens[i] = [src, tgt]
-    test_tokens = np.empty([test_len], dtype=int).tolist()
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        valid_data[i] = [src, tgt]
+    test_data = np.empty([test_len], dtype=int).tolist()
     test_iter = iter(dataset['test'])
     for i in tqdm(range(test_len), 'read test data'):
         data = next(test_iter)
         src = data['article']
         tgt = data['highlights']
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        test_tokens[i] = [src, tgt]
-    logger.info("dataset: cnn dailymail, train: %d, valid: %d, test: %d" %(len(train_tokens),len(valid_tokens), len(test_tokens)))
-    return train_tokens, valid_tokens,  test_tokens
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        test_data[i] = [src, tgt]
+    logger.info("dataset: cnn dailymail, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data,  test_data
 
-def read_samsum_data(tokenizer):
+def read_samsum_data(tokenizer=None, sen_out=False):
     logger.info("read samsum data")
     dataset = read_dataset('samsum', '')
     logger.info("read raw tokens")
     train_len = dataset['train'].num_rows
     valid_len = dataset['validation'].num_rows
     test_len = dataset['test'].num_rows
-    train_tokens = np.empty([train_len], dtype=int).tolist()
+    train_data = np.empty([train_len], dtype=int).tolist()
     train_iter = iter(dataset['train'])
     for i in tqdm(range(train_len), 'read train data'):
         data = next(train_iter)
         src = data['dialogue']
         tgt = data['summary']
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        train_tokens[i] = [src, tgt]
-    valid_tokens = np.empty([valid_len], dtype=int).tolist()
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        train_data[i] = [src, tgt]
+    valid_data = np.empty([valid_len], dtype=int).tolist()
     valid_iter = iter(dataset['validation'])
     for i in tqdm(range(valid_len), 'read valid data'):
         data = next(valid_iter)
         src = data['dialogue']
         tgt = data['summary']
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        valid_tokens[i] = [src, tgt]
-    test_tokens = np.empty([test_len], dtype=int).tolist()
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        valid_data[i] = [src, tgt]
+    test_data = np.empty([test_len], dtype=int).tolist()
     test_iter = iter(dataset['test'])
     for i in tqdm(range(test_len), 'read test data'):
         data = next(test_iter)
         src = data['dialogue']
         tgt = data['summary']
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        test_tokens[i] = [src, tgt]
-    logger.info("dataset: samsum, train: %d, valid: %d, test: %d" %(len(train_tokens),len(valid_tokens), len(test_tokens)))
-    return train_tokens, valid_tokens,  test_tokens
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        test_data[i] = [src, tgt]
+    logger.info("dataset: samsum, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data,  test_data
 
-def read_gem_data(tokenizer):
+def read_gem_data(tokenizer=None, sen_out=False):
     logger.info("read gem data")
     dataset = read_dataset('gem', 'common_gen')
     logger.info("read raw tokens")
     train_len = dataset['train'].num_rows
     valid_len = dataset['validation'].num_rows
     test_len = dataset['test'].num_rows
-    train_tokens = np.empty([train_len], dtype=int).tolist()
+    train_data = np.empty([train_len], dtype=int).tolist()
     train_iter = iter(dataset['train'])
     for i in tqdm(range(train_len), 'read train data'):
         data = next(train_iter)
         src = data['concepts']
         tgt = data['target']
-        tgt = tokenizer(tgt)
-        train_tokens[i] = [src, tgt]
-    valid_tokens = np.empty([valid_len], dtype=int).tolist()
+        if sen_out ==False:
+            tgt = tokenizer(tgt)
+        train_data[i] = [src, tgt]
+    valid_data = np.empty([valid_len], dtype=int).tolist()
     valid_iter = iter(dataset['validation'])
     for i in tqdm(range(valid_len), 'read valid data'):
         data = next(valid_iter)
         src = data['concepts']
         tgt = data['target']
-        tgt = tokenizer(tgt)
-        valid_tokens[i] = [src, tgt]
-    test_tokens = np.empty([test_len], dtype=int).tolist()
+        if sen_out ==False:
+            tgt = tokenizer(tgt)
+        valid_data[i] = [src, tgt]
+    test_data = np.empty([test_len], dtype=int).tolist()
     test_iter = iter(dataset['test'])
     for i in tqdm(range(test_len), 'read test data'):
         data = next(test_iter)
         src = data['concepts']
         tgt = data['target']
-        tgt = tokenizer(tgt)
-        test_tokens[i] = [src, tgt]
-    logger.info("dataset: gem, train: %d, valid: %d, test: %d" %(len(train_tokens),len(valid_tokens), len(test_tokens)))
-    return train_tokens, valid_tokens,  test_tokens
+        if sen_out ==False:
+            tgt = tokenizer(tgt)
+        test_data[i] = [src, tgt]
+    logger.info("dataset: gem, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data,  test_data
 
-def read_xlsum_data(tokenizer):
+def read_xlsum_data(tokenizer=None, sen_out=False):
     logger.info("read GEM/xlsum data")
     dataset = read_dataset('GEM/xlsum', 'french')
     logger.info("read raw tokens")
     train_len = dataset['train'].num_rows
     valid_len = dataset['validation'].num_rows
     test_len = dataset['test'].num_rows
-    train_tokens = np.empty([train_len], dtype=int).tolist()
+    train_data = np.empty([train_len], dtype=int).tolist()
     train_iter = iter(dataset['train'])
     for i in tqdm(range(train_len), 'read train data'):
         data = next(train_iter)
         src = data['text']
         tgt = data['target']
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        train_tokens[i] = [src, tgt]
-    valid_tokens = np.empty([valid_len], dtype=int).tolist()
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        train_data[i] = [src, tgt]
+    valid_data = np.empty([valid_len], dtype=int).tolist()
     valid_iter = iter(dataset['validation'])
     for i in tqdm(range(valid_len), 'read valid data'):
         data = next(valid_iter)
         src = data['text']
         tgt = data['target']
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        valid_tokens[i] = [src, tgt]
-    test_tokens = np.empty([test_len], dtype=int).tolist()
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        valid_data[i] = [src, tgt]
+    test_data = np.empty([test_len], dtype=int).tolist()
     test_iter = iter(dataset['test'])
     for i in tqdm(range(test_len), 'read test data'):
         data = next(test_iter)
         src = data['text']
         tgt = data['target']
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
-        test_tokens[i] = [src, tgt]
-    logger.info("dataset: xlsum, train: %d, valid: %d, test: %d" %(len(train_tokens),len(valid_tokens), len(test_tokens)))
-    return train_tokens, valid_tokens,  test_tokens
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        test_data[i] = [src, tgt]
+    logger.info("dataset: xlsum, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data,  test_data
 
-def read_atis_data(tokenizer):
+def read_atis_data(tokenizer=None, sen_out=False):
     logger.info("read atis data")
     dataset = read_dataset('fathyshalab/atis_intents', '')
     logger.info("read raw tokens")
     train_len = dataset['train'].num_rows
     test_len = dataset['test'].num_rows
-    train_tokens = np.empty([train_len], dtype=int).tolist()
+    train_data = np.empty([train_len], dtype=int).tolist()
     train_iter = iter(dataset['train'])
     for i in tqdm(range(train_len), 'read train data'):
         data = next(train_iter)
         src = data['text']
         tgt = data['label text']
-        src = tokenizer(src)
+        if sen_out == False:
+            src = tokenizer(src)
         tgt = [tgt]
-        train_tokens[i] = [src, tgt]
-    test_tokens = np.empty([test_len], dtype=int).tolist()
+        train_data[i] = [src, tgt]
+    test_data = np.empty([test_len], dtype=int).tolist()
     test_iter = iter(dataset['test'])
     for i in tqdm(range(test_len), 'read test data'):
         data = next(test_iter)
         src = data['text']
         tgt = data['label text']
         tgt = [tgt]
-        src = tokenizer(src)
-        test_tokens[i] = [src, tgt]
+        if sen_out == False:
+            src = tokenizer(src)
+        test_data[i] = [src, tgt]
     part = int(test_len/2)
-    valid_tokens = test_tokens[:part]
-    test_tokens = test_tokens[part:]
-    logger.info("dataset: atis, train: %d, valid: %d, test: %d" %(len(train_tokens),len(valid_tokens), len(test_tokens)))
-    return train_tokens, valid_tokens,  test_tokens
+    valid_data = test_data[:part]
+    test_data = test_data[part:]
+    logger.info("dataset: atis, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data,  test_data
 
 def read_copy_data():
     logger.info("read raw data")
@@ -653,44 +693,46 @@ def read_copy_data():
     logger.info("dataset: copy, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
     return train_data, valid_data, test_data, vocab_src, vocab_tgt
 
-def read_raw_data(dataset, tokenizer):
+def read_raw_data(dataset, tokenizer=None, sen_out=False):
     if dataset =="wmt14":
-        train_tokens, valid_tokens,  test_tokens = read_wmt14_data(tokenizer)
+        train_data, valid_data,  test_data = read_wmt14_data(tokenizer,sen_out=sen_out)
     elif dataset == "wmt16":
-        train_tokens, valid_tokens,  test_tokens = read_wmt16_data(tokenizer)
+        train_data, valid_data,  test_data = read_wmt16_data(tokenizer,sen_out=sen_out)
     elif dataset == "tatoeba":
-        train_tokens, valid_tokens,  test_tokens = read_tatoeba_data(tokenizer)
+        train_data, valid_data,  test_data = read_tatoeba_data(tokenizer, sen_out=sen_out)
     elif dataset == 'opus100':
-        train_tokens, valid_tokens,  test_tokens =  read_opus100_data(tokenizer)
+       train_data, valid_data,  test_data =  read_opus100_data(tokenizer,sen_out=sen_out)
     elif dataset == 'hearthstone':
-        train_tokens, valid_tokens,  test_tokens =  read_hearthstone_data(tokenizer)
+        train_data, valid_data,  test_data =  read_hearthstone_data(tokenizer, sen_out=sen_out)
     elif dataset == 'magic':
-        train_tokens, valid_tokens,  test_tokens =  read_magic_data(tokenizer)
+        train_data, valid_data,  test_data =  read_magic_data(tokenizer, sen_out=sen_out)
     elif dataset == "spider":
-        train_tokens, valid_tokens,  test_tokens =  read_spider_data(tokenizer)
+        train_data, valid_data,  test_data =  read_spider_data(tokenizer, sen_out=sen_out)
     elif dataset == "geo":
-        train_tokens, valid_tokens,  test_tokens =  read_geo_data(tokenizer)
+        train_data, valid_data,  test_data =  read_geo_data(tokenizer, sen_out=sen_out)
     elif dataset == 'django':
-        train_tokens, valid_tokens,  test_tokens =  read_django_data(tokenizer)
+        train_data, valid_data,  test_data =  read_django_data(tokenizer,sen_out=sen_out)
     elif dataset == 'conala':
-        train_tokens, valid_tokens,  test_tokens =  read_conala_data(tokenizer)
+        train_data, valid_data,  test_data =  read_conala_data(tokenizer, sen_out=sen_out)
     elif dataset == 'opus_euconst':
-        train_tokens, valid_tokens,  test_tokens =  read_opus_euconst_data(tokenizer)
+        train_data, valid_data,  test_data =  read_opus_euconst_data(tokenizer, sen_out=sen_out)
     elif dataset == 'cnn_dailymail':
-        train_tokens, valid_tokens,  test_tokens =  read_cnn_dailymail_data(tokenizer)
+        train_data, valid_data,  test_data =  read_cnn_dailymail_data(tokenizer, sen_out=sen_out)
     elif dataset == 'samsum':
-        train_tokens, valid_tokens,  test_tokens =  read_samsum_data(tokenizer)
+        train_data, valid_data,  test_data =  read_samsum_data(tokenizer, sen_out=sen_out)
     elif dataset == 'gem':
-        train_tokens, valid_tokens,  test_tokens =  read_gem_data(tokenizer)
+        train_data, valid_data,  test_data =  read_gem_data(tokenizer, sen_out=sen_out)
     elif dataset == 'xlsum':
-        train_tokens, valid_tokens,  test_tokens =  read_xlsum_data(tokenizer)
+        train_data, valid_data,  test_data =  read_xlsum_data(tokenizer, sen_out=sen_out)
     elif dataset == 'atis':
-        train_tokens, valid_tokens,  test_tokens =  read_atis_data(tokenizer)
-    return train_tokens, valid_tokens,  test_tokens
+        train_data, valid_data,  test_data =  read_atis_data(tokenizer, sen_out=sen_out)
+    return train_data, valid_data,  test_data
 
-def read_data(dataset, tokenizer):
+def read_data(dataset, tokenizer=None, sen_out=False):
     if dataset == "copy":
         return  read_copy_data()
+    elif sen_out:
+        return read_raw_data(dataset, sen_out=True)
     else:
         train_tokens, valid_tokens,  test_tokens = read_raw_data(dataset, tokenizer)
         return gen_feature_data(train_tokens, valid_tokens,  test_tokens)
@@ -726,7 +768,7 @@ def fcm(data, cluster_num, h):
 
 def run():
     # read_data('atis')
-    # download_dataset()
+    download_dataset()
     return 0
 
-run()
+# run()

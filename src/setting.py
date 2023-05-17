@@ -35,13 +35,19 @@ options.learning_rate = 0.0001
 trans = Options("transformer")
 trans.embedding_dim =128
 trans.hidden_size = 128
-trans.nlayer = 3
 trans.nhead = 16
+trans.nlayer = 3
 trans.drop_out = 0.1
 options.trans = trans
 
+rnn = Options("rnn")
+rnn.hidden_size = 128
+rnn.nlayer = 3
+rnn.drop_out = 0.1
+options.rnn = rnn
+
 tok = Options("tokenizer")
-tok.train_len = 400000
+tok.train_len = 200000
 tok.valid_len = 1000
 tok.test_len = 1000
 options.tok = tok

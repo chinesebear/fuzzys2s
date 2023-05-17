@@ -47,6 +47,53 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:x.size(0), :]
         return self.dropout(x)
 
+class RnnEncoder(nn.Module):
+    def __init__(self, input_size, hidden_size, nlayers, dropout=0.1):
+        super(RnnEncoder, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.embedding = nn.Embedding(input_size, hidden_size)
+        self.gru = nn.GRU(input_size=hidden_size,hidden_size=hidden_size, num_layers=nlayers, dropout=dropout)
+    def forward(self, input):
+        input = self.embedding(input)
+        input = input.view(-1 ,1, self.hidden_size)
+        output, hidden = self.gru(input)# seq_len * batch_size * input_size
+        return hidden
+
+class RnnDecoder(nn.Module):
+    def __init__(self, output_size, hidden_size, nlayers, dropout=0.1):
+        super(RnnDecoder, self).__init__()
+        self.hidden_size = hidden_size
+        self.embedding = nn.Embedding(output_size, hidden_size)
+        self.gru = nn.GRU(input_size=hidden_size, hidden_size=hidden_size, num_layers=nlayers, dropout=dropout)
+        self.fc = nn.Linear(hidden_size, output_size)
+        self.softmax = nn.LogSoftmax(dim=-1)
+    def forward(self, input, hidden):
+        input = self.embedding(input)
+        input = input.view(-1 ,1, self.hidden_size)
+        input = F.relu(input)
+        output, hidden = self.gru(input, hidden) #seq_len * batch_size * input_size
+        output = self.fc(output)
+        output = self.softmax(output)
+        return output
+
+class RnnModel(nn.Module):
+    def __init__(self, vocab_src_size, vocab_tgt_size,nhid, nlayers, dropout=0.1):
+        super(RnnModel, self).__init__()
+        self.name = "rnn"
+        self.tgt_size = vocab_tgt_size
+        self.encoder = RnnEncoder(vocab_src_size, nhid, nlayers,dropout)
+        self.decoder = RnnDecoder(vocab_tgt_size, nhid, nlayers,dropout)
+    def forward(self, src, tgt):
+        src_with_eos = attach_eos(src)
+        tgt_with_sos = insert_sos(tgt)
+        hidden = self.encoder(src_with_eos) # seq_len* batch* embedding_dim
+        output = torch.zeros(len(tgt_with_sos),1, self.tgt_size).to(options.device)
+        for i in range(len(tgt_with_sos)):
+            decoding = self.decoder(tgt_with_sos[i], hidden)
+            output[i] = decoding[0]
+        return output
+
 class TransEncoder(nn.Module):
     def __init__(self, ntoken, ninp, nhead, nhid, nlayers, dropout=0.1):
         super(TransEncoder, self).__init__()
@@ -99,7 +146,6 @@ class TransDecoder(nn.Module):
         output = self.decoder(tgt, memory, tgt_mask)
         output= self.fc(output)
         return output
-
 
 class TransformerModel(nn.Module):
     def __init__(self, vocab_src_size, vocab_tgt_size, ninp, nhead, nhid, nlayers, dropout=0.1):
