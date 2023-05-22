@@ -193,18 +193,20 @@ class FuzzySystem(nn.Module):
         return output
 
 class FuzzyEncoder(nn.Module):
-    def __init__(self,src_vocab_size, feature_num, rule_num, center,sigma ):
+    def __init__(self,src_vocab_size, feature_num, rule_num, center,sigma, encoder):
         super(FuzzyEncoder, self).__init__()
         self.rule_num = rule_num
         self.fs = FuzzySystem(feature_num, rule_num, center, sigma)
         encoder_list = []
         for _ in range(rule_num):
-            encoder_list.append(TransEncoder(src_vocab_size,
-                                             options.trans.embedding_dim,
-                                             options.trans.nhead,
-                                             options.trans.hidden_size,
-                                             options.trans.nlayer,
-                                             options.trans.drop_out))
+            my_encoder = TransEncoder(src_vocab_size,
+                                    options.trans.embedding_dim,
+                                    options.trans.nhead,
+                                    options.trans.hidden_size,
+                                    options.trans.nlayer,
+                                    options.trans.drop_out)
+            my_encoder = encoder
+            encoder_list.append(my_encoder)
         self.encoder = nn.ModuleList(encoder_list)
     def forward(self, src, src_features):
         products = self.fs(src_features)
@@ -217,19 +219,21 @@ class FuzzyEncoder(nn.Module):
         return output
 
 class FuzzyDecoder(nn.Module):
-    def __init__(self,tgt_vocab_size, feature_num, rule_num, center,sigma ):
+    def __init__(self,tgt_vocab_size, feature_num, rule_num, center,sigma, decoder ):
         super(FuzzyDecoder, self).__init__()
         self.rule_num = rule_num
         self.feature_num = feature_num
         self.fs = FuzzySystem(feature_num, rule_num, center, sigma)
         decoder_list = []
         for _ in range(rule_num):
-            decoder_list.append(TransDecoder(tgt_vocab_size,
-                                             options.trans.embedding_dim,
-                                             options.trans.nhead,
-                                             options.trans.hidden_size,
-                                             options.trans.nlayer,
-                                             options.trans.drop_out))
+            my_decoder = TransEncoder(tgt_vocab_size,
+                                    options.trans.embedding_dim,
+                                    options.trans.nhead,
+                                    options.trans.hidden_size,
+                                    options.trans.nlayer,
+                                    options.trans.drop_out)
+            my_decoder = decoder
+            decoder_list.append(my_decoder)
         self.decoder = nn.ModuleList(decoder_list)
     def forward(self, tgt, tgt_features, memory):
         products = self.fs(tgt_features)
@@ -242,7 +246,7 @@ class FuzzyDecoder(nn.Module):
         return output
 
 class FuzzyS2S(nn.Module):
-    def __init__(self,vocab_src, vocab_tgt , feature_num, rule_num, src_center,src_sigma,  tgt_center, tgt_sigma):
+    def __init__(self,vocab_src, vocab_tgt , feature_num, rule_num, src_center,src_sigma,  tgt_center, tgt_sigma, model):
         super(FuzzyS2S, self).__init__()
         self.name = 'fuzzys2s'
         self.rule_num = rule_num
@@ -250,8 +254,8 @@ class FuzzyS2S(nn.Module):
         self.vocab_tgt = vocab_tgt
         src_vocab_size = vocab_src.n_words
         tgt_vocab_size = vocab_tgt.n_words
-        self.encoder = FuzzyEncoder(src_vocab_size, feature_num, rule_num, src_center, src_sigma).to(options.device)
-        self.decoder = FuzzyDecoder(tgt_vocab_size, feature_num, rule_num, tgt_center, tgt_sigma).to(options.device)
+        self.encoder = FuzzyEncoder(src_vocab_size, feature_num, rule_num, src_center, src_sigma, model.encoder).to(options.device)
+        self.decoder = FuzzyDecoder(tgt_vocab_size, feature_num, rule_num, tgt_center, tgt_sigma, model.decoder).to(options.device)
     def forward(self, src, tgt):
         src_with_eos = attach_eos(src)
         tgt_with_sos = insert_sos(tgt)
@@ -259,4 +263,48 @@ class FuzzyS2S(nn.Module):
         tgt_features = torch.tensor(gen_sen_feature_map(self.vocab_tgt, tgt)).to(options.device)
         memory = self.encoder(src_with_eos, src_features)
         output = self.decoder(tgt_with_sos, tgt_features, memory)
+        return output
+
+class FuzzyModel(nn.Module):
+    def __init__(self,src_vocab_size, tgt_vocab_size, feature_num, rule_num, center,sigma, model):
+        super(FuzzyModel, self).__init__()
+        self.rule_num = rule_num
+        self.feature_num = feature_num
+        self.fs = FuzzySystem(feature_num, rule_num, center, sigma)
+        model_list = []
+        for _ in range(rule_num):
+            my_model = TransformerModel(src_vocab_size,
+                                    tgt_vocab_size,
+                                    options.trans.embedding_dim,
+                                    options.trans.nhead,
+                                    options.trans.hidden_size,
+                                    options.trans.nlayer,
+                                    options.trans.drop_out).to(options.device)
+            my_model = model
+            model_list.append(my_model)
+        self.model = nn.ModuleList(model_list)
+    def forward(self,src, src_features, tgt, tgt_features):
+        products = self.fs(src_features)
+        output = 0
+        for i in range(self.rule_num):
+            product = products[i]
+            if math.isnan(product):
+                product = 1.0
+            output = output + product * self.model[i](src,tgt)
+        return output
+
+class FuzzyS2S_B(nn.Module):
+    def __init__(self,vocab_src, vocab_tgt , feature_num, rule_num, src_center,src_sigma,model):
+        super(FuzzyS2S_B, self).__init__()
+        self.name = 'fuzzys2s_b'
+        self.rule_num = rule_num
+        self.vocab_src = vocab_src
+        self.vocab_tgt = vocab_tgt
+        src_vocab_size = vocab_src.n_words
+        tgt_vocab_size = vocab_tgt.n_words
+        self.model = FuzzyModel(src_vocab_size, tgt_vocab_size, feature_num, rule_num, src_center,src_sigma, model)
+    def forward(self, src, tgt):
+        src_features = torch.tensor(gen_sen_feature_map(self.vocab_src, src)).to(options.device)
+        tgt_features = torch.tensor(gen_sen_feature_map(self.vocab_tgt, tgt)).to(options.device)
+        output = self.model(src, src_features, tgt, tgt_features)
         return output

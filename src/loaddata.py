@@ -15,6 +15,9 @@ from tokenizers.pre_tokenizers import Whitespace
 from tokenizers.trainers import BpeTrainer,WordPieceTrainer, UnigramTrainer
 from tqdm import tqdm
 import random
+import itertools
+import pickle
+import jsonlines
 
 class Vocab:
     def __init__(self, name):
@@ -134,7 +137,7 @@ def read_raw_tokens(dataset, src_lang, tgt_lang, tokenizer, sen_out=False):
             src = tokenizer(src)
             tgt = tokenizer(tgt)
         valid_data[i] = [src, tgt]
-    return train_data, test_data, valid_data
+    return train_data, valid_data, test_data
 
 def download_dataset():
     datasets = [
@@ -271,8 +274,7 @@ def read_opus100_data(tokenizer=None, sen_out=False):
     logger.info("read raw data")
     train_data, valid_data,  test_data = read_raw_tokens(dataset, src_lang, tgt_lang,tokenizer,sen_out)
     logger.info("dataset: opus100, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
-    test_data.pop(1679)
-    test_data.pop(1678)
+    test_data = test_data[:-2]
     return train_data, valid_data,  test_data
 
 def read_hearthstone_data(tokenizer=None, sen_out=False):
@@ -281,8 +283,8 @@ def read_hearthstone_data(tokenizer=None, sen_out=False):
     valid_lines = read_line_pair(options.base_path+'doc/hearthstone/dev_hs.in', options.base_path+'doc/hearthstone/dev_hs.out')
     test_lines = read_line_pair(options.base_path+'doc/hearthstone/test_hs.in', options.base_path+'doc/hearthstone/test_hs.out')
     if sen_out:
-        logger.info("dataset: hearthstone, train: %d, valid: %d, test: %d" %(len(train_lines),len(train_lines), len(test_lines)))
-        return train_lines, train_lines, test_lines
+        logger.info("dataset: hearthstone, train: %d, valid: %d, test: %d" %(len(train_lines),len(valid_lines), len(test_lines)))
+        return train_lines, valid_lines, test_lines
     train_data=[]
     valid_data=[]
     test_data=[]
@@ -307,8 +309,8 @@ def read_magic_data(tokenizer=None, sen_out=False):
     valid_lines = read_line_pair(options.base_path+'doc/magic/dev_magic.in', options.base_path+'doc/magic/dev_magic.out')
     test_lines = read_line_pair(options.base_path+'doc/magic/test_magic.in', options.base_path+'doc/magic/test_magic.out')
     if sen_out:
-        logger.info("dataset: hearthstone, train: %d, valid: %d, test: %d" %(len(train_lines),len(train_lines), len(test_lines)))
-        return train_lines, train_lines, test_lines
+        logger.info("dataset: magic the gathering, train: %d, valid: %d, test: %d" %(len(train_lines),len(valid_lines), len(test_lines)))
+        return train_lines, valid_lines, test_lines
     train_data=[]
     valid_data=[]
     test_data=[]
@@ -337,16 +339,25 @@ def read_spider_data(tokenizer=None, sen_out=False):
     train_iter = iter(dataset['train'])
     for i in range(train_len):
         data = next(train_iter)
-        src = data['question_toks']
-        tgt = data['query_toks']
+        if sen_out:
+            src = data['question']
+            tgt = data['query']
+        else:
+            src = data['question_toks']
+            tgt = data['query_toks']
         train_data[i] = [src, tgt]
     valid_data = np.empty([valid_len], dtype=int).tolist()
     valid_iter = iter(dataset['validation'])
     for i in range(valid_len):
         data = next(valid_iter)
-        src = data['question_toks']
-        tgt = data['query_toks']
+        if sen_out:
+            src = data['question']
+            tgt = data['query']
+        else:
+            src = data['question_toks']
+            tgt = data['query_toks']
         valid_data[i] = [src, tgt]
+    random.shuffle(valid_data)
     test_data= valid_data[int(valid_len/2):]
     valid_data = valid_data[:int(valid_len/2)]
     logger.info("dataset: spider, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
@@ -358,7 +369,6 @@ def read_geo_data(tokenizer=None, sen_out=False):
     logger.info("read raw tokens")
     train_len = dataset['train'].num_rows
     train_data = np.empty([train_len], dtype=int).tolist()
-    random.shuffle(dataset['train'])
     train_iter = iter(dataset['train'])
     for i in range(train_len):
         data = next(train_iter)
@@ -368,6 +378,7 @@ def read_geo_data(tokenizer=None, sen_out=False):
             src = tokenizer(src)
             tgt = tokenizer(tgt)
         train_data[i] = [src, tgt]
+    random.shuffle(train_data)
     part = int(train_len/10)
     test_data= train_data[train_len-part:]
     valid_data = train_data[train_len-part:]
@@ -445,9 +456,12 @@ def read_conala_data(tokenizer=None, sen_out=False):
             src = data['rewritten_intent']
         src = src.replace('\\', '#').replace('/', '#')
         tgt = data['snippet'].replace('\\', '#').replace('/', '#')
-        src = tokenizer(src)
-        tgt = tokenizer(tgt)
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
         test_data[i] = [src, tgt]
+    random.shuffle(test_data)
+    logger.info("test data random shuffle done")
     part = int(test_len/2)
     valid_data = test_data[:part]
     test_data =  test_data[part:]
@@ -562,6 +576,46 @@ def read_samsum_data(tokenizer=None, sen_out=False):
     logger.info("dataset: samsum, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
     return train_data, valid_data,  test_data
 
+def read_xsum_data(tokenizer=None, sen_out=False):
+    logger.info("read xsum data")
+    dataset = read_dataset('xsum', '')
+    logger.info("read raw tokens")
+    train_len = dataset['train'].num_rows
+    valid_len = dataset['validation'].num_rows
+    test_len = dataset['test'].num_rows
+    train_data = np.empty([train_len], dtype=int).tolist()
+    train_iter = iter(dataset['train'])
+    for i in tqdm(range(train_len), 'read train data'):
+        data = next(train_iter)
+        src = data['document']
+        tgt = data['summary']
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        train_data[i] = [src, tgt]
+    valid_data = np.empty([valid_len], dtype=int).tolist()
+    valid_iter = iter(dataset['validation'])
+    for i in tqdm(range(valid_len), 'read valid data'):
+        data = next(valid_iter)
+        src = data['document']
+        tgt = data['summary']
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        valid_data[i] = [src, tgt]
+    test_data = np.empty([test_len], dtype=int).tolist()
+    test_iter = iter(dataset['test'])
+    for i in tqdm(range(test_len), 'read test data'):
+        data = next(test_iter)
+        src = data['document']
+        tgt = data['summary']
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        test_data[i] = [src, tgt]
+    logger.info("dataset: xsum, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data,  test_data
+
 def read_gem_data(tokenizer=None, sen_out=False):
     logger.info("read gem data")
     dataset = read_dataset('gem', 'common_gen')
@@ -597,6 +651,38 @@ def read_gem_data(tokenizer=None, sen_out=False):
             tgt = tokenizer(tgt)
         test_data[i] = [src, tgt]
     logger.info("dataset: gem, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data,  test_data
+
+def read_billsum_data(tokenizer=None, sen_out=False):
+    logger.info("read billsum data")
+    logger.info("read raw tokens")
+    train_path = options.base_path + 'output/billsum_v4_1/us_train_data_final_OFFICIAL.jsonl'
+    test_path =  options.base_path + 'output/billsum_v4_1/us_test_data_final_OFFICIAL.jsonl'
+    train_data = []
+    test_data = []
+    with open(train_path, "r", encoding="utf8") as f:
+        for line in jsonlines.Reader(f):
+            src = line['text']
+            tgt = line['summary']
+            if sen_out==False:
+                src = tokenizer(src)
+                tgt = tokenizer(tgt)
+            train_data.append([src, tgt])
+        f.close()
+    with open(test_path, "r", encoding="utf8") as f:
+        for line in jsonlines.Reader(f):
+            src = line['text']
+            tgt = line['summary']
+            if sen_out == False:
+                src = tokenizer(src)
+                tgt = tokenizer(tgt)
+            test_data.append([src, tgt])
+        f.close()
+    random.shuffle(test_data)
+    part = int(len(test_data)/2)
+    valid_data = test_data[:part]
+    test_data = test_data[part:]
+    logger.info("dataset: billsum, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
     return train_data, valid_data,  test_data
 
 def read_xlsum_data(tokenizer=None, sen_out=False):
@@ -653,7 +739,7 @@ def read_atis_data(tokenizer=None, sen_out=False):
         tgt = data['label text']
         if sen_out == False:
             src = tokenizer(src)
-        tgt = [tgt]
+            tgt = [tgt]
         train_data[i] = [src, tgt]
     test_data = np.empty([test_len], dtype=int).tolist()
     test_iter = iter(dataset['test'])
@@ -661,9 +747,9 @@ def read_atis_data(tokenizer=None, sen_out=False):
         data = next(test_iter)
         src = data['text']
         tgt = data['label text']
-        tgt = [tgt]
         if sen_out == False:
             src = tokenizer(src)
+            tgt = [tgt]
         test_data[i] = [src, tgt]
     part = int(test_len/2)
     valid_data = test_data[:part]
@@ -720,12 +806,16 @@ def read_raw_data(dataset, tokenizer=None, sen_out=False):
         train_data, valid_data,  test_data =  read_cnn_dailymail_data(tokenizer, sen_out=sen_out)
     elif dataset == 'samsum':
         train_data, valid_data,  test_data =  read_samsum_data(tokenizer, sen_out=sen_out)
+    elif dataset == 'xsum':
+        train_data, valid_data,  test_data =  read_xsum_data(tokenizer, sen_out=sen_out)
     elif dataset == 'gem':
         train_data, valid_data,  test_data =  read_gem_data(tokenizer, sen_out=sen_out)
     elif dataset == 'xlsum':
         train_data, valid_data,  test_data =  read_xlsum_data(tokenizer, sen_out=sen_out)
     elif dataset == 'atis':
         train_data, valid_data,  test_data =  read_atis_data(tokenizer, sen_out=sen_out)
+    elif dataset == 'billsum':
+        train_data, valid_data,  test_data =  read_billsum_data(tokenizer, sen_out=sen_out)
     return train_data, valid_data,  test_data
 
 def read_data(dataset, tokenizer=None, sen_out=False):
@@ -736,15 +826,228 @@ def read_data(dataset, tokenizer=None, sen_out=False):
     else:
         train_tokens, valid_tokens,  test_tokens = read_raw_data(dataset, tokenizer)
         return gen_feature_data(train_tokens, valid_tokens,  test_tokens)
+def get_wmt14_iter():
+    dataset = read_dataset("wmt14",'fr-en')
+    train_raw_iter = iter(dataset['train'])
+    valid_raw_iter = iter(dataset['validation'])
+    test_raw_iter = iter(dataset['test'])
+    raw_iter = itertools.chain(train_raw_iter, valid_raw_iter, test_raw_iter)
+    raw_len = dataset['train'].num_rows + dataset['validation'].num_rows + dataset['test'].num_rows
+    src_lang = 'en'
+    tgt_lang = 'fr'
+    return raw_iter, raw_len, src_lang, tgt_lang
+
+def get_opus100_iter():
+    dataset = read_dataset("opus100",'en-fr')
+    train_raw_iter = iter(dataset['train'])
+    valid_raw_iter = iter(dataset['validation'])
+    test_raw_iter = iter(dataset['test'])
+    raw_iter = itertools.chain(train_raw_iter, valid_raw_iter, test_raw_iter)
+    raw_len = dataset['train'].num_rows + dataset['validation'].num_rows + dataset['test'].num_rows
+    src_lang = 'en'
+    tgt_lang = 'fr'
+    return raw_iter, raw_len, src_lang, tgt_lang
+
+def save_vocab(vocab, name):
+    logger.info("save %s vocab..." %(name))
+    vocab_path = options.base_path+'output/vocab_'+name+'.pickle'
+    with open(vocab_path, 'wb') as f: # open file with write-mode
+        pickle.dump(vocab, f) # serialize and save object
+
+def load_vocab(name):
+    logger.info("load %s vocab..." %(name))
+    vocab_path = options.base_path+'output/vocab_'+name+'.pickle'
+    with open(vocab_path, 'rb') as f:
+        vocab = pickle.load(f)   # read file and build object
+    return vocab
+
+def save_center_info(name, centers, sigma):
+    logger.info("save %s centers..." %(name))
+    info_path = options.base_path+'output/center_'+name+'.csv'
+    headers = ['center_x', 'center_y', 'sigma_x', 'sigma_y']
+    rows = np.empty((len(centers), 4)).tolist()
+    for i in range(len(rows)):
+        rows[i][0] = centers[i][0]
+        rows[i][1] = centers[i][1]
+        rows[i][2] = sigma[i][0]
+        rows[i][3] = sigma[i][1]
+    with open(info_path, 'w', encoding='utf-8', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(headers)
+        writer.writerows(rows)
+
+def load_cluster_info(name):
+    logger.info("load %s centers..." %(name))
+    info_path = options.base_path+'output/center_'+name+'.csv'
+    centers = []
+    sigma = []
+    with open(info_path, encoding='utf-8') as f:
+        reader = csv.reader(f)
+        headers = next(reader)
+        print(headers)
+        for row in reader:
+            centers.append([row[0], row[1]])
+            sigma.append([row[2], row[3]])
+    return centers, sigma
+def translate_vocab_task():
+    src_lang = 'en'
+    tgt_lang = 'fr'
+    tokenizer = get_tokenizer("basic_english")
+    vocab_src = Vocab('src '+src_lang)
+    vocab_tgt = Vocab('src '+tgt_lang)
+    raw_iter, raw_len, src_lang, tgt_lang = get_wmt14_iter()
+    for i in tqdm(range(raw_len),'wmt14'):
+        data = next(raw_iter)
+        src = data['translation'][src_lang]
+        tgt = data['translation'][tgt_lang]
+        src = tokenizer(src)
+        tgt = tokenizer(tgt)
+        vocab_src.addTokens(src)
+        vocab_tgt.addTokens(tgt)
+    raw_iter, raw_len, src_lang, tgt_lang = get_opus100_iter()
+    for i in tqdm(range(raw_len),'opus100'):
+        data = next(raw_iter)
+        src = data['translation'][src_lang]
+        tgt = data['translation'][tgt_lang]
+        src = tokenizer(src)
+        tgt = tokenizer(tgt)
+        vocab_src.addTokens(src)
+        vocab_tgt.addTokens(tgt)
+    train_data, valid_data,  test_data = read_opus_euconst_data(tokenizer=tokenizer)
+    raw_data = train_data + valid_data + test_data
+    for data in tqdm(raw_data, 'opus_euconst'):
+        src = data[0]
+        tgt = data[1]
+        vocab_src.addTokens(src)
+        vocab_tgt.addTokens(tgt)
+    train_data, valid_data,  test_data = read_tatoeba_data(tokenizer=tokenizer)
+    raw_data = train_data + valid_data + test_data
+    for data in tqdm(raw_data, 'tatoeba'):
+        src = data[0]
+        tgt = data[1]
+        vocab_src.addTokens(src)
+        vocab_tgt.addTokens(tgt)
+    save_vocab(vocab_src, "translate_src_"+src_lang)
+    save_vocab(vocab_tgt, "translate_tgt_"+tgt_lang)
+    return 0
+
+def translate_center_task():
+    src_lang = 'en'
+    tgt_lang = 'fr'
+    step = 10000
+    tokenizer = get_tokenizer("basic_english")
+    vocab_src = load_vocab("translate_src_"+src_lang)
+    vocab_tgt = load_vocab("translate_tgt_"+tgt_lang)
+    raw_iter, raw_len, src_lang, tgt_lang = get_wmt14_iter()
+    src_centers = []
+    tgt_centers = []
+    src_features = []
+    tgt_features = []
+    count=0
+    for i in tqdm(range(raw_len),'wmt14'):
+        data = next(raw_iter)
+        src = data['translation'][src_lang]
+        tgt = data['translation'][tgt_lang]
+        src = tokenizer(src)
+        tgt = tokenizer(tgt)
+        src = [vocab_src.word2index[word]  for word in src]
+        tgt = [vocab_tgt.word2index[word]  for word in tgt]
+        src = gen_sen_feature_map(vocab_src, src)
+        tgt = gen_sen_feature_map(vocab_tgt, tgt)
+        src_features.append(src)
+        tgt_features.append(tgt)
+        count = count + 1
+        if count % step == 0:
+            src_data = np.array(src_features)
+            centers_tensor,_ = fcm(src_data, options.cluster_num, options.h)
+            src_centers.extend(centers_tensor.tolist())
+            tgt_data = np.array(tgt_features)
+            centers_tensor,_ = fcm(tgt_data, options.cluster_num, options.h)
+            tgt_centers.extend(centers_tensor.tolist())
+            src_features = []
+            tgt_features = []
+    count=0
+    raw_iter, raw_len, src_lang, tgt_lang = get_opus100_iter()
+    for i in tqdm(range(raw_len),'opus100'):
+        data = next(raw_iter)
+        src = data['translation'][src_lang]
+        tgt = data['translation'][tgt_lang]
+        src = tokenizer(src)
+        tgt = tokenizer(tgt)
+        src = [vocab_src.word2index[word]  for word in src]
+        tgt = [vocab_tgt.word2index[word]  for word in tgt]
+        src = gen_sen_feature_map(vocab_src, src)
+        tgt = gen_sen_feature_map(vocab_tgt, tgt)
+        src_features.append(src)
+        tgt_features.append(tgt)
+        count = count + 1
+        if count % step == 0:
+            src_data = np.array(src_features)
+            centers_tensor,_ = fcm(src_data, options.cluster_num, options.h)
+            src_centers.extend(centers_tensor.tolist())
+            tgt_data = np.array(tgt_features)
+            centers_tensor,_ = fcm(tgt_data, options.cluster_num, options.h)
+            tgt_centers.extend(centers_tensor.tolist())
+            src_features = []
+            tgt_features = []
+    count=0
+    train_data, valid_data,  test_data = read_opus_euconst_data(tokenizer=tokenizer)
+    raw_data = train_data + valid_data + test_data
+    for data in tqdm(raw_data, 'opus_euconst'):
+        src = data[0]
+        tgt = data[1]
+        src = [vocab_src.word2index[word]  for word in src]
+        tgt = [vocab_tgt.word2index[word]  for word in tgt]
+        src = gen_sen_feature_map(vocab_src, src)
+        tgt = gen_sen_feature_map(vocab_tgt, tgt)
+        src_features.append(src)
+        tgt_features.append(tgt)
+        count = count + 1
+        if count % 1000 == 0:
+            src_data = np.array(src_features)
+            centers_tensor,_ = fcm(src_data, options.cluster_num, options.h)
+            src_centers.extend(centers_tensor.tolist())
+            tgt_data = np.array(tgt_features)
+            centers_tensor,_ = fcm(tgt_data, options.cluster_num, options.h)
+            tgt_centers.extend(centers_tensor.tolist())
+            src_features = []
+            tgt_features = []
+    count=0
+    train_data, valid_data,  test_data = read_tatoeba_data(tokenizer=tokenizer)
+    raw_data = train_data + valid_data + test_data
+    for data in tqdm(raw_data, 'tatoeba'):
+        src = data[0]
+        tgt = data[1]
+        src = [vocab_src.word2index[word]  for word in src]
+        tgt = [vocab_tgt.word2index[word]  for word in tgt]
+        src = gen_sen_feature_map(vocab_src, src)
+        tgt = gen_sen_feature_map(vocab_tgt, tgt)
+        src_features.append(src)
+        tgt_features.append(tgt)
+        count = count + 1
+        if count % step:
+            src_data = np.array(src_features)
+            centers_tensor,_ = fcm(src_data, options.cluster_num, options.h)
+            src_centers.extend(centers_tensor.tolist())
+            tgt_data = np.array(tgt_features)
+            centers_tensor,_ = fcm(tgt_data, options.cluster_num, options.h)
+            tgt_centers.extend(centers_tensor.tolist())
+            src_features = []
+            tgt_features = []
+    centers_tensor,sigma_tensor = fcm(np.array(src_centers), options.cluster_num, options.h)
+    save_center_info("translate_src_"+src_lang, centers_tensor.tolist(), sigma_tensor.tolist())
+    centers_tensor,sigma_tensor = fcm(np.array(tgt_centers), options.cluster_num, options.h)
+    save_center_info("translate_tgt_"+tgt_lang, centers_tensor.tolist(), sigma_tensor.tolist())
+    return 0
 
 def fcm(data, cluster_num, h):
     # input data type is numpy
-    logger.info("fcm clustering...")
+    # logger.info("fcm clustering...")
     feature_num = len(data[0])
     fcm = FCM(n_clusters=cluster_num)
     fcm.fit(data)
     centers = fcm.centers.tolist()
-    logger.info("cluster center: %d" %(len(centers)))
+    # logger.info("cluster center: %d" %(len(centers)))
     membership = fcm.soft_predict(data)
     data_num = len(data)
     sigma = []
@@ -759,7 +1062,7 @@ def fcm(data, cluster_num, h):
                 b = b + membership[k][i]
             feature_sigma.append(h*a/b)
         sigma.append(feature_sigma)
-    logger.info("cluster sigma: %d" %(len(sigma)))
+    # logger.info("cluster sigma: %d" %(len(sigma)))
     # print("centers:",centers )
     # print("sigma:", sigma)
     centers_tensor = torch.tensor(centers, requires_grad=True).to(options.device)
@@ -767,8 +1070,12 @@ def fcm(data, cluster_num, h):
     return centers_tensor,sigma_tensor
 
 def run():
+    tokenizer = get_tokenizer("basic_english")
     # read_data('atis')
-    download_dataset()
+    # download_dataset()
+    # translate_vocab_task()
+    # translate_center_task()
+    read_data('xlsum', tokenizer)
     return 0
 
 # run()
