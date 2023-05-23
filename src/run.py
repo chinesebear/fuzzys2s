@@ -274,6 +274,8 @@ def train(model, model_name, dataset_name, train_data, valid_data, test_data, vo
     if pretrain_used == True :
         loadmodel(model, model_name + '-' +dataset_name)
     else:
+        # loadmodel(model, model_name + '-' +dataset_name)
+        # model.train()
         train_results = []
         for epoch in range(epoch_num):
             count = 0
@@ -394,7 +396,7 @@ def rnn_task(dataset_name, tokenizer, pretrain_used=False):
                     options.rnn.hidden_size,
                     options.rnn.nlayer,
                     options.rnn.drop_out).to(options.device)
-    result = train(model, model_name, dataset_name, train_data, valid_data[:10], test_data, vocab_src, vocab_tgt, pretrain_used)
+    result = train(model, model_name, dataset_name, train_data, valid_data[:10], test_data, vocab_src, vocab_tgt, pretrain_used, epoch_num=3)
     logger.remove(log_file)
     return result
 
@@ -411,7 +413,7 @@ def trans_task(dataset_name, tokenizer, pretrain_used=False):
                              options.trans.hidden_size,
                              options.trans.nlayer,
                              options.trans.drop_out).to(options.device)
-    result = train(model, model_name, dataset_name, train_data, valid_data[:10], test_data, vocab_src, vocab_tgt, pretrain_used)
+    result = train(model, model_name, dataset_name, train_data, valid_data[:10], test_data, vocab_src, vocab_tgt, pretrain_used, epoch_num=1)
     logger.remove(log_file)
     return result
 
@@ -965,7 +967,7 @@ def run():
     # datasets =['opus_euconst', 'tatoeba','opus100','wmt14']
     # datasets =['hearthstone', 'magic', 'geo',  'spider']
     # datasets =['cnn_dailymail', 'samsum', 'xsum',  'xlsum', 'billsum']
-    datasets= ['xsum']
+    datasets= ['billsum']
     results = []
     tokenizer = get_tokenizer("basic_english")
     # tokenizer = get_base_tokenizer('bert-base-uncased')
@@ -986,8 +988,8 @@ def run():
         # results.append(result)
         # result = s2s_b_task(dataset, tokenizer,pretrain_used=False)
         # results.append(result)
-        # result = rnn_task(dataset, tokenizer,pretrain_used=False)
-        # results.append(result)
+        result = rnn_task(dataset, tokenizer,pretrain_used=False)
+        results.append(result)
         # result = codet5_task('Salesforce/codet5-small',dataset)
         # results.append(result)
         # result = codet5_task('Salesforce/codet5-base',dataset)
@@ -998,7 +1000,7 @@ def run():
         # results.append(result)
         # result = codebert_task('microsoft/codebert-base-mlm',dataset)
         # results.append(result)
-        # result = t5_task('t5-small',dataset, task_prefix='summarize: ')
+        # result = t5_task('t5-small',dataset, fine_tuning=True,task_prefix='summarize: ')
         # results.append(result)
         # result = t5_task('t5-base',dataset, task_prefix='summarize: ')
         # results.append(result)
@@ -1006,8 +1008,8 @@ def run():
         # results.append(result)
         # result = pegasus_task('google/pegasus-xsum',dataset)
         # results.append(result)
-        result = pegasus_x_task('google/pegasus-x-large',dataset)
-        results.append(result)
+        # result = pegasus_x_task('google/pegasus-x-large',dataset)
+        # results.append(result)
     log_file = logger.add(options.base_path+'output/result-'+str(datetime.date.today()) +'.log')
     for result in results:
         logger.info("------------------------------------result------------------------------------------" )
