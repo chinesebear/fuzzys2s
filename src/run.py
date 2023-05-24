@@ -36,22 +36,35 @@ def model_param(model):
     for name,parameters in model.named_parameters():
         logger.info('%s : %s' %(name,str(parameters.size())))
 
-def model_finetune(model,model_path, tokenizer,task_prefix, train_sen_pairs, valid_sen_pairs, epoch_num=2, max_src_length=128, max_tgt_length=128):
+def model_finetune_pairs_ids(pairs, tokenizer, task_prefix, max_src_len, max_tgt_len):
+    input_ids = torch.zeros(len(pairs), max_src_len).to(options.device)
+    labels = torch.zeros(len(pairs), max_tgt_len).to(options.device)
+    for i in range(len(pairs)):
+        pair = pairs[i]
+        src = task_prefix + pair[0]
+        tgt = pair[1]
+        src = tokenizer(src, return_tensors="pt").input_ids
+        tgt =  tokenizer(tgt, return_tensors="pt").input_ids
+        tmp_ids = model_finetune_padding(src, max_src_len)
+        tmp_labels = model_finetune_padding(tgt, max_tgt_len)
+        input_ids[i] = tmp_ids[0]
+        labels[i] = tmp_labels[0]
+    raw_dict = {'input_ids':input_ids.long(), 'labels':labels.long()}
+    dataset = Dataset.from_dict(raw_dict)
+    return dataset
+
+
+def model_finetune(model,model_path, tokenizer,task_prefix, train_sen_pairs, valid_sen_pairs, epoch_num=1, max_src_length=512, max_tgt_length=512):
     logger.info('model fine tune start...')
-    input_ids = tokenizer([task_prefix + sequence[0] for sequence in train_sen_pairs], truncation=True,padding=True, max_length=max_src_length, return_tensors="pt").input_ids
-    labels = tokenizer([sequence[1] for sequence in train_sen_pairs], truncation=True,padding=True,max_length=max_tgt_length, return_tensors="pt").input_ids
-    raw_dict = {'input_ids':input_ids, 'labels':labels}
-    train_dataset = Dataset.from_dict(raw_dict)
-    input_ids = tokenizer([task_prefix + sequence[0] for sequence in valid_sen_pairs], truncation=True,padding=True, max_length=max_src_length, return_tensors="pt").input_ids
-    labels = tokenizer([sequence[1] for sequence in valid_sen_pairs], truncation=True,padding=True,max_length=max_tgt_length, return_tensors="pt").input_ids
-    raw_dict = {'input_ids':input_ids, 'labels':labels}
-    valid_dataset = Dataset.from_dict(raw_dict)
+    model.train()
+    train_dataset = model_finetune_pairs_ids(train_sen_pairs, tokenizer, task_prefix, max_src_length, max_tgt_length)
+    valid_dataset = model_finetune_pairs_ids(valid_sen_pairs, tokenizer, task_prefix, max_src_length, max_tgt_length)
     default_args = {
         "output_dir": model_path,
         "evaluation_strategy": "steps",
         "num_train_epochs": epoch_num,
-        'per_device_train_batch_size': 32,
-        'per_device_eval_batch_size': 32,
+        'per_device_train_batch_size': 8,
+        'per_device_eval_batch_size': 8,
         "log_level": "error",
         "report_to": "none",
     }
@@ -65,6 +78,7 @@ def model_finetune(model,model_path, tokenizer,task_prefix, train_sen_pairs, val
     )
     trainer.train()
     logger.info('model fine tune done')
+    model.eval()
 
 def model_finetune_padding(input, max_len):
     output = torch.empty(1,max_len).to(options.device)
@@ -86,23 +100,28 @@ def model_finetune_align(src, tgt):
         src = model_finetune_padding(src, max_len)
     return src.long(), tgt.long()
 
-def model_finetune2(model,model_path, tokenizer,task_prefix, train_sen_pairs, valid_sen_pairs, epoch_num=2, max_src_length=128, max_tgt_length=128):
+def model_finetune2(model,model_path, tokenizer,task_prefix, train_sen_pairs, valid_sen_pairs, epoch_num=2, max_src_length=512, max_tgt_length=512):
     logger.info('model fine tune start...')
+    model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=options.learning_rate, weight_decay=0)
-    criterion = nn.CrossEntropyLoss()
     for i in range(epoch_num):
         for src, tgt in tqdm(train_sen_pairs, 'finetune'):
             optimizer.zero_grad()
             input_ids = tokenizer(task_prefix+ src, return_tensors="pt").input_ids.to(options.device)
             labels = tokenizer(tgt, return_tensors="pt").input_ids.to(options.device)
             input_ids, labels = model_finetune_align( input_ids, labels)
-            if len(input_ids[0]) > 512:
-                continue
+            if len(input_ids[0]) > max_src_length:
+                temp_ids = input_ids[0][0:max_src_length]
+                input_ids= temp_ids.view(1,-1)
+            if len(labels[0]) > max_tgt_length:
+                temp_labels = labels[0][0:max_tgt_length]
+                labels = temp_labels.view(1,-1)
             raw_dict = {'input_ids':input_ids, 'labels':labels}
             loss = model(**raw_dict).loss
             loss.backward()
             optimizer.step()
     logger.info('model fine tune done')
+    model.eval()
 
 def setup_seed(seed):
     torch.manual_seed(seed)
@@ -156,6 +175,7 @@ def predict(model, test_data, vocab_src, vocab_tgt, evaluator):
     total_metrics = MetricsValue()
     softmax = nn.Softmax(dim=-1)
     criterion = nn.CrossEntropyLoss()
+    model.eval()
     for src, tgt in tqdm(test_data,'test data'):
         if len(src) > options.sen_len_max:
             src = src[:options.sen_len_max]
@@ -275,7 +295,7 @@ def train(model, model_name, dataset_name, train_data, valid_data, test_data, vo
         loadmodel(model, model_name + '-' +dataset_name)
     else:
         # loadmodel(model, model_name + '-' +dataset_name)
-        # model.train()
+        model.train()
         train_results = []
         for epoch in range(epoch_num):
             count = 0
@@ -396,7 +416,7 @@ def rnn_task(dataset_name, tokenizer, pretrain_used=False):
                     options.rnn.hidden_size,
                     options.rnn.nlayer,
                     options.rnn.drop_out).to(options.device)
-    result = train(model, model_name, dataset_name, train_data, valid_data[:10], test_data, vocab_src, vocab_tgt, pretrain_used, epoch_num=3)
+    result = train(model, model_name, dataset_name, train_data, valid_data[:10], test_data, vocab_src, vocab_tgt, pretrain_used, epoch_num=1)
     logger.remove(log_file)
     return result
 
@@ -695,15 +715,15 @@ def codegen_task(model_name, dataset_name, pretrain_used=True):
     model = AutoModelForCausalLM.from_pretrained(model_name).to(options.device)
     model_param(model)
     # # fine tuning with dataset
-    task_prefix = 'Code Generation: '
+    task_prefix = ''
     model_path = options.base_path+'output/finetune/'+model_name+'-'+dataset_name
     model_finetune(model,model_path, tokenizer,task_prefix, train_sen_pairs, valid_sen_pairs[:10],
-                   max_src_length=64,
-                   max_tgt_length=64,
+                   max_src_length=128,
+                   max_tgt_length=128,
                    epoch_num=1)
 
     # max_source_length = 512
-    max_target_length = 128
+    max_target_length = 512
     count = 0
     total_metrics = MetricsValue()
     evaluator = Evaluator()
@@ -774,13 +794,13 @@ def codebert_task(model_name, dataset_name, pretrain_used=True):
     # # fine tuning with dataset
     task_prefix = ''
     model_path = options.base_path+'output/finetune/'+model_name+'-'+dataset_name
-    model_finetune2(model,model_path, tokenizer,task_prefix, train_sen_pairs[:2000], valid_sen_pairs[:10],
-                   max_src_length=128,
-                   max_tgt_length=128,
-                   epoch_num=1)
+    model_finetune2(model,model_path, tokenizer,task_prefix, train_sen_pairs, valid_sen_pairs[:10],
+                   max_src_length=512,
+                   max_tgt_length=512,
+                   epoch_num=10)
 
     # max_source_length = 512
-    max_target_length = 128
+    max_target_length = 512
     count = 0
     total_metrics = MetricsValue()
     evaluator = Evaluator()
@@ -966,8 +986,8 @@ def pegasus_x_task(model_name, dataset_name, pretrain_used=True, fine_tuning=Fal
 def run():
     # datasets =['opus_euconst', 'tatoeba','opus100','wmt14']
     # datasets =['hearthstone', 'magic', 'geo',  'spider']
-    # datasets =['cnn_dailymail', 'samsum', 'xsum',  'xlsum', 'billsum']
-    datasets= ['billsum']
+    # datasets =['cnn_dailymail', 'samsum', 'xsum', 'billsum']
+    datasets= ['hearthstone']
     results = []
     tokenizer = get_tokenizer("basic_english")
     # tokenizer = get_base_tokenizer('bert-base-uncased')
@@ -988,16 +1008,16 @@ def run():
         # results.append(result)
         # result = s2s_b_task(dataset, tokenizer,pretrain_used=False)
         # results.append(result)
-        result = rnn_task(dataset, tokenizer,pretrain_used=False)
-        results.append(result)
+        # result = rnn_task(dataset, tokenizer,pretrain_used=False)
+        # results.append(result)
         # result = codet5_task('Salesforce/codet5-small',dataset)
         # results.append(result)
         # result = codet5_task('Salesforce/codet5-base',dataset)
         # results.append(result)
         # result = codet5_task('Salesforce/codet5-large',dataset)
         # results.append(result)
-        # result = codegen_task('Salesforce/codegen-350M-mono',dataset)
-        # results.append(result)
+        result = codegen_task('Salesforce/codegen-350M-mono',dataset)
+        results.append(result)
         # result = codebert_task('microsoft/codebert-base-mlm',dataset)
         # results.append(result)
         # result = t5_task('t5-small',dataset, fine_tuning=True,task_prefix='summarize: ')
