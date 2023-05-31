@@ -18,6 +18,7 @@ import random
 import itertools
 import pickle
 import jsonlines
+from translate.storage.tmx import tmxfile
 
 class Vocab:
     def __init__(self, name):
@@ -276,6 +277,30 @@ def read_opus100_data(tokenizer=None, sen_out=False):
     logger.info("dataset: opus100, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
     test_data = test_data[:-2]
     return train_data, valid_data,  test_data
+
+def read_ubuntu_data(tokenizer=None, sen_out=False):
+    logger.info("read ubuntu data")
+    src_lang = 'as'
+    tgt_lang = 'bs'
+    with open(options.base_path+"doc/as-bs.tmx", 'rb') as fin:
+        tmx_file = tmxfile(fin, src_lang,tgt_lang)
+    data = [] #  src-tgt token pairs or sen pairs
+    tmx_iter = tmx_file.unit_iter()
+    for node in tqdm(tmx_iter, 'read data'):
+        src = node.source
+        tgt = node.target
+        if sen_out == False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        data.append([src, tgt])
+    total = len(data)
+    part = int(total/10)
+    train_data = data[:total - part*2]
+    valid_data = data[total - part*2:total - part]
+    test_data = data[total - part:]
+    logger.info("dataset: ubuntu, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data,  test_data
+
 
 def read_hearthstone_data(tokenizer=None, sen_out=False):
     logger.info("read raw data")
@@ -685,6 +710,46 @@ def read_billsum_data(tokenizer=None, sen_out=False):
     logger.info("dataset: billsum, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
     return train_data, valid_data,  test_data
 
+def read_orangesum_data(tokenizer=None, sen_out=False):
+    dataset = read_dataset('orange_sum', 'abstract')
+    logger.info("read raw tokens")
+    train_len = dataset['train'].num_rows
+    valid_len = dataset['validation'].num_rows
+    test_len = dataset['test'].num_rows
+    train_data = np.empty([train_len], dtype=int).tolist()
+    train_iter = iter(dataset['train'])
+    for i in tqdm(range(train_len), 'read train data'):
+        data = next(train_iter)
+        src = data['text']
+        tgt = data['summary']
+        if sen_out ==False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        train_data[i] = [src, tgt]
+    valid_data = np.empty([valid_len], dtype=int).tolist()
+    valid_iter = iter(dataset['validation'])
+    for i in tqdm(range(valid_len), 'read valid data'):
+        data = next(valid_iter)
+        src = data['text']
+        tgt = data['summary']
+        if sen_out ==False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        valid_data[i] = [src, tgt]
+    test_data = np.empty([test_len], dtype=int).tolist()
+    test_iter = iter(dataset['test'])
+    for i in tqdm(range(test_len), 'read test data'):
+        data = next(test_iter)
+        src = data['text']
+        tgt = data['summary']
+        if sen_out ==False:
+            src = tokenizer(src)
+            tgt = tokenizer(tgt)
+        test_data[i] = [src, tgt]
+    logger.info("dataset: orangesum, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
+    return train_data, valid_data,  test_data
+
+
 def read_xlsum_data(tokenizer=None, sen_out=False):
     logger.info("read GEM/xlsum data")
     dataset = read_dataset('GEM/xlsum', 'french')
@@ -757,6 +822,8 @@ def read_atis_data(tokenizer=None, sen_out=False):
     logger.info("dataset: atis, train: %d, valid: %d, test: %d" %(len(train_data),len(valid_data), len(test_data)))
     return train_data, valid_data,  test_data
 
+
+
 def read_copy_data():
     logger.info("read raw data")
     logger.info("build vocabulary")
@@ -816,6 +883,10 @@ def read_raw_data(dataset, tokenizer=None, sen_out=False):
         train_data, valid_data,  test_data =  read_atis_data(tokenizer, sen_out=sen_out)
     elif dataset == 'billsum':
         train_data, valid_data,  test_data =  read_billsum_data(tokenizer, sen_out=sen_out)
+    elif dataset == 'orangesum':
+        train_data, valid_data,  test_data =  read_orangesum_data(tokenizer, sen_out=sen_out)
+    elif dataset == 'ubuntu':
+        train_data, valid_data,  test_data =  read_ubuntu_data(tokenizer, sen_out=sen_out)
     return train_data, valid_data,  test_data
 
 def read_data(dataset, tokenizer=None, sen_out=False):

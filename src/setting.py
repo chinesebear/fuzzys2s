@@ -32,16 +32,16 @@ options.drop_out = 0.1
 options.learning_rate = 0.0001
 
 trans = Options("transformer")
-trans.embedding_dim =512
-trans.hidden_size = 128
-trans.nhead = 16
-trans.nlayer = 3
+trans.embedding_dim =512  # T5 small setting
+trans.hidden_size = 512
+trans.nhead = 8
+trans.nlayer = 6  # T5 large 12
 trans.drop_out = 0.1
 options.trans = trans
 
 rnn = Options("rnn")
-rnn.hidden_size = 128
-rnn.nlayer = 3
+rnn.hidden_size = 512
+rnn.nlayer = 6
 rnn.drop_out = 0.1
 options.rnn = rnn
 

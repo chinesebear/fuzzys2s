@@ -39,7 +39,7 @@ def model_param(model):
 def model_finetune_pairs_ids(pairs, tokenizer, task_prefix, max_src_len, max_tgt_len):
     input_ids = torch.zeros(len(pairs), max_src_len).to(options.device)
     labels = torch.zeros(len(pairs), max_tgt_len).to(options.device)
-    for i in range(len(pairs)):
+    for i in tqdm(range(len(pairs))):
         pair = pairs[i]
         src = task_prefix + pair[0]
         tgt = pair[1]
@@ -377,7 +377,7 @@ def s2s_task(dataset_name, tokenizer, pretrain_used=False):
                              options.trans.drop_out).to(options.device)
     loadmodel(trans_model, 'transformer-'+dataset_name)
     model = FuzzyS2S(vocab_src, vocab_tgt, options.feature_num, options.rule_num, center_src, sigma_src, center_tgt, sigma_tgt, trans_model).to(options.device)
-    result = train(model, model_name, dataset_name, train_data, valid_data[:10], test_data, vocab_src, vocab_tgt, pretrain_used, epoch_num=0)
+    result = train(model, model_name, dataset_name, train_data, valid_data[:10], test_data, vocab_src, vocab_tgt, pretrain_used, epoch_num=1)
     logger.remove(log_file)
     return result
 
@@ -416,7 +416,7 @@ def rnn_task(dataset_name, tokenizer, pretrain_used=False):
                     options.rnn.hidden_size,
                     options.rnn.nlayer,
                     options.rnn.drop_out).to(options.device)
-    result = train(model, model_name, dataset_name, train_data, valid_data[:10], test_data, vocab_src, vocab_tgt, pretrain_used, epoch_num=1)
+    result = train(model, model_name, dataset_name, train_data, valid_data[:10], test_data, vocab_src, vocab_tgt, pretrain_used, epoch_num=20)
     logger.remove(log_file)
     return result
 
@@ -452,7 +452,11 @@ def t5_task(model_name, dataset_name, pretrain_used=True, fine_tuning=False, tas
     evaluator = Evaluator()
     if fine_tuning:
         model_path = options.base_path+'output/finetune/'+model_name+'-'+dataset_name
-        model_finetune(model,model_path, tokenizer,task_prefix, train_sen_pairs, valid_sen_pairs[:10],epoch_num=1)
+        # model_finetune(model,model_path, tokenizer,task_prefix, train_sen_pairs, valid_sen_pairs[:10],epoch_num=10)
+        model_finetune2(model,model_path, tokenizer,task_prefix, train_sen_pairs, valid_sen_pairs[:10],
+                        max_src_length=512,
+                        max_tgt_length=512,
+                        epoch_num=10)
 
     for src,tgt in tqdm(test_sen_pairs,"test data"):
         if len(src) > options.sen_len_max:
@@ -570,13 +574,20 @@ def mt5_task(model_name, dataset_name, pretrain_used=True):
     logger.remove(log_file)
     return result
 
-def opus_mt_task(model_name, dataset_name, pretrain_used=True):
+def opus_mt_task(model_name, dataset_name, pretrain_used=True, fine_tuning=False):
     log_file = logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
     logger.info('model %s on dataset %s start...' %(model_name, dataset_name))
     setup_seed(options.seed_id)
     train_sen_pairs, valid_sen_pairs, test_sen_pairs = read_data(dataset_name, sen_out=True)
     tokenizer = AutoTokenizer.from_pretrained("Helsinki-NLP/opus-mt-en-fr")
     model = AutoModelForSeq2SeqLM.from_pretrained("Helsinki-NLP/opus-mt-en-fr").to(options.device)
+    if fine_tuning:
+        model_path = options.base_path+'output/finetune/'+model_name+'-'+dataset_name
+        task_prefix = ''
+        model_finetune2(model,model_path, tokenizer,task_prefix, train_sen_pairs, valid_sen_pairs[:10],
+                        max_src_length=512,
+                        max_tgt_length=512,
+                        epoch_num=10)
     model_param(model)
     max_source_length = 512
     max_target_length = 128
@@ -715,12 +726,13 @@ def codegen_task(model_name, dataset_name, pretrain_used=True):
     model = AutoModelForCausalLM.from_pretrained(model_name).to(options.device)
     model_param(model)
     # # fine tuning with dataset
-    task_prefix = ''
+    task_prefix = 'generate python: '
     model_path = options.base_path+'output/finetune/'+model_name+'-'+dataset_name
     model_finetune(model,model_path, tokenizer,task_prefix, train_sen_pairs, valid_sen_pairs[:10],
-                   max_src_length=128,
-                   max_tgt_length=128,
-                   epoch_num=1)
+                   max_src_length=256,
+                   max_tgt_length=256,
+                   epoch_num=3
+                   )
 
     # max_source_length = 512
     max_target_length = 512
@@ -984,45 +996,51 @@ def pegasus_x_task(model_name, dataset_name, pretrain_used=True, fine_tuning=Fal
 
 
 def run():
-    # datasets =['opus_euconst', 'tatoeba','opus100','wmt14']
+    # datasets =['opus_euconst', 'tatoeba','opus100','wmt14', 'ubuntu']
     # datasets =['hearthstone', 'magic', 'geo',  'spider']
-    # datasets =['cnn_dailymail', 'samsum', 'xsum', 'billsum']
-    datasets= ['hearthstone']
+    # datasets =['cnn_dailymail', 'samsum', 'xsum', 'billsum', 'orangesum', 'xlsum']
+    datasets= ['opus_euconst']
     results = []
     tokenizer = get_tokenizer("basic_english")
     # tokenizer = get_base_tokenizer('bert-base-uncased')
     for dataset in datasets:
-        # result = t5_task('t5-small',dataset)
+        # result = t5_task('t5-small',dataset,fine_tuning=True)
         # results.append(result)
-        # result = t5_task('t5-base',dataset)
+        # result = t5_task('t5-base',dataset,fine_tuning=True)
         # results.append(result)
-        # result = t5_task('t5-large',dataset)
+        # result = t5_task('t5-large',dataset, fine_tuning=True)
+        # results.append(result)
+        # result = t5_task('t5-small',dataset,fine_tuning=True, task_prefix="translate as to bs: ")
+        # results.append(result)
+        # result = t5_task('t5-base',dataset,fine_tuning=True, task_prefix="translate as to bs: ")
+        # results.append(result)
+        # result = t5_task('t5-large',dataset,fine_tuning=True, task_prefix="translate as to bs: ")
         # results.append(result)
         # result = mt5_task('google/mt5-small',dataset)
         # results.append(result)
-        # result = opus_mt_task('Helsinki-NLP/opus-mt-en-fr', dataset)
+        # result = opus_mt_task('Helsinki-NLP/opus-mt-en-fr', dataset, fine_tuning=True)
         # results.append(result)
-        # result = trans_task(dataset, tokenizer,pretrain_used=False)
-        # results.append(result)
-        # result = s2s_task(dataset, tokenizer,pretrain_used=False)
-        # results.append(result)
+        result = trans_task(dataset, tokenizer,pretrain_used=False)
+        results.append(result)
+        result = s2s_task(dataset, tokenizer,pretrain_used=False)
+        results.append(result)
         # result = s2s_b_task(dataset, tokenizer,pretrain_used=False)
         # results.append(result)
-        # result = rnn_task(dataset, tokenizer,pretrain_used=False)
-        # results.append(result)
+        result = rnn_task(dataset, tokenizer,pretrain_used=False)
+        results.append(result)
         # result = codet5_task('Salesforce/codet5-small',dataset)
         # results.append(result)
         # result = codet5_task('Salesforce/codet5-base',dataset)
         # results.append(result)
         # result = codet5_task('Salesforce/codet5-large',dataset)
         # results.append(result)
-        result = codegen_task('Salesforce/codegen-350M-mono',dataset)
-        results.append(result)
+        # result = codegen_task('Salesforce/codegen-350M-mono',dataset)
+        # results.append(result)
         # result = codebert_task('microsoft/codebert-base-mlm',dataset)
         # results.append(result)
-        # result = t5_task('t5-small',dataset, fine_tuning=True,task_prefix='summarize: ')
+        # result = t5_task('t5-small',dataset, task_prefix='summarize: ')
         # results.append(result)
-        # result = t5_task('t5-base',dataset, task_prefix='summarize: ')
+        # result = t5_task('t5-base',dataset,task_prefix='summarize: ')
         # results.append(result)
         # result = t5_task('t5-large',dataset, task_prefix='summarize: ')
         # results.append(result)
