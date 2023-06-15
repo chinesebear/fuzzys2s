@@ -1111,13 +1111,36 @@ def translate_center_task():
     save_center_info("translate_tgt_"+tgt_lang, centers_tensor.tolist(), sigma_tensor.tolist())
     return 0
 
+def order_point(points):
+    # input type: np.array
+    idxs =  np.argsort(points, axis=0)
+    plen = len(points)
+    pwidth = len(points[0])
+    output = np.empty((plen,pwidth))
+    for i in range(plen):
+        output[i] = points[idxs[i][0]] # order by feature_0
+    return output
+
+
+def order_center(centers, sigma):
+    # input type: np.array
+    points = []
+    for i in range(len(centers)):
+        points.append([centers[i][0], centers[i][1], sigma[i][0], sigma[i][1]])
+    points = order_point(points)
+    for i in range(len(centers)):
+        centers[i] = [points[i][0], points[i][1]]
+        sigma[i] = [points[i][2], points[i][3]]
+    return centers, sigma
+
 def fcm(data, cluster_num, h):
     # input data type is numpy
     # logger.info("fcm clustering...")
     feature_num = len(data[0])
     fcm = FCM(n_clusters=cluster_num)
     fcm.fit(data)
-    centers = fcm.centers.tolist()
+    centers = fcm.centers
+    centers = centers.tolist()
     # logger.info("cluster center: %d" %(len(centers)))
     membership = fcm.soft_predict(data)
     data_num = len(data)
@@ -1136,6 +1159,7 @@ def fcm(data, cluster_num, h):
     # logger.info("cluster sigma: %d" %(len(sigma)))
     # print("centers:",centers )
     # print("sigma:", sigma)
+    centers,sigma = order_center(centers, sigma)
     centers_tensor = torch.tensor(centers, requires_grad=True).to(options.device)
     sigma_tensor = torch.tensor(sigma, requires_grad=True).to(options.device)
     return centers_tensor,sigma_tensor

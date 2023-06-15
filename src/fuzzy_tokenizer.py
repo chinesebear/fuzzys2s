@@ -12,7 +12,7 @@ import torch
 import torch.nn.functional as F
 import math
 from fcmeans import FCM
-from loaddata import Vocab, read_raw_data
+from loaddata import Vocab, read_raw_data, read_data
 from tqdm import tqdm
 import csv
 import pickle
@@ -114,6 +114,55 @@ def train_tokenizer(dataset, vocab_size):
     logger.info("dataset %s, vocab size %d , tokenizer train done" %(dataset, vocab_size))
     return tokenizer
 
+def train_tokenizer_on_dataset(tokenizer, dataset, vocab_size):
+    logger.info("train tokenizer on %s, vocab size %d" %(dataset, vocab_size))
+    train_data, valid_data,  test_data = read_data(dataset,sen_out=True)
+    data = train_data+valid_data+test_data
+    lines = []
+    for d in tqdm(data,dataset):
+        lines.append(d[0])
+        lines.append(d[1])
+    tokenizer.train_new_from_iterator(lines, vocab_size=vocab_size)
+    return tokenizer
+
+def train_tokenizer_on_large_dataset(tokenizer, dataset, vocab_size):
+    logger.info("train tokenizer on %s, vocab size %d" %(dataset, vocab_size))
+    raw_iter, raw_len, src_lang, tgt_lang = get_dataset_iter(dataset)
+    count = 0
+    step = 20000
+    while(count < raw_len):
+        if (raw_len - count) % step == 0:
+            read_len = step
+        else:
+            read_len = (raw_len - count) % step
+        raw_lines = read_raw_lines(raw_iter, read_len, src_lang, tgt_lang)
+        tokenizer = tokenizer.train_new_from_iterator(raw_lines, vocab_size=vocab_size)
+        count = count + read_len
+    return tokenizer
+
+def train_fuzzy_tokenizer(vocab_size):
+    tokenizer_path = options.base_path+"output/fuzzy_vs"+str(vocab_size)+"_tokenizer"
+    if os.path.exists(tokenizer_path):
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+        logger.info("multi-scale Tokenizer, vocab size %d , tokenizer found" %(vocab_size))
+    else:
+        tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+    logger.info("fuzzy_vs%d_tokenizer train start..." %(vocab_size))
+    # tokenizer = train_tokenizer_on_large_dataset(tokenizer, 'wmt14', vocab_size)
+    tokenizer = train_tokenizer_on_dataset(tokenizer, 'ubuntu', vocab_size)
+    tokenizer = train_tokenizer_on_dataset(tokenizer, 'opus_euconst', vocab_size)
+    tokenizer = train_tokenizer_on_dataset(tokenizer, 'hearthstone', vocab_size)
+    tokenizer = train_tokenizer_on_dataset(tokenizer, 'magic', vocab_size)
+    tokenizer = train_tokenizer_on_dataset(tokenizer, 'geo', vocab_size)
+    tokenizer = train_tokenizer_on_dataset(tokenizer, 'spider', vocab_size)
+    tokenizer = train_tokenizer_on_dataset(tokenizer, 'xlsum', vocab_size)
+    tokenizer = train_tokenizer_on_dataset(tokenizer, 'billsum', vocab_size)
+    tokenizer = train_tokenizer_on_dataset(tokenizer, 'samsum', vocab_size)
+    tokenizer = train_tokenizer_on_dataset(tokenizer, 'cnn_dailymail', vocab_size)
+    tokenizer.save_pretrained(tokenizer_path)
+    logger.info("fuzzy_vs%d_tokenizer train done" %(vocab_size))
+    return tokenizer
+
 def get_base_tokenizer(name):
     tokenizer_path = options.base_path+"output/"+name+"/"
     if os.path.exists(tokenizer_path):
@@ -178,14 +227,35 @@ def order_point(points):
         output[i] = points[idxs[i][0]] # order by feature_0
     return output
 
+def order_center(centers, sigma):
+    # input type: np.array
+    points = []
+    for i in range(len(centers)):
+        points.append([centers[i][0], centers[i][1], sigma[i][0], sigma[i][1]])
+    points = order_point(points)
+    for i in range(len(centers)):
+        centers[i] = [points[i][0], points[i][1]]
+        sigma[i] = [points[i][2], points[i][3]]
+    return centers, sigma
+
 def fcm_cluster(data, cluster_num, h):
     # input data type is numpy
     logger.info("fcm clustering...")
     feature_num = options.feature_num
     fcm = FCM(n_clusters=cluster_num,max_iter=options.iter_num)
+    total = len(data)
+    logger.info("tokens:%d" %(total))
+    token_subclass_num = 1000
+    step = int(total/token_subclass_num)
+    if step > 20000:
+        raw_centers = []
+        for i in tqdm(range(token_subclass_num), 'sub cluster'):
+            raw_data = data[i*step:i*step + step]
+            fcm.fit(raw_data)
+            raw_centers.extend(fcm.centers.tolist())
+        data = np.array(raw_centers)
     fcm.fit(data)
     centers = fcm.centers
-    centers = order_point(centers)
     centers = centers.tolist()
     logger.info("cluster center: %d" %(len(centers)))
     membership = fcm.soft_predict(data)
@@ -203,12 +273,13 @@ def fcm_cluster(data, cluster_num, h):
             feature_sigma.append(h*a/b)
         sigma.append(feature_sigma)
     logger.info("cluster sigma: %d" %(len(sigma)))
+    centers,sigma = order_center(centers, sigma)
     sigma = np.array(sigma)
     centers = np.array(centers)
     return centers,sigma
 
 def save_cluster_info(dataset, centers, sigma):
-    info_path = options.base_path+'output/'+ dataset+'_cluster_info.csv'
+    info_path = options.base_path+'output/'+ dataset+'_'+str(options.tokenizer.fuzzy_rule_num)+'_rule_cluster_info.csv'
     headers = ['center_x', 'center_y', 'sigma_x', 'sigma_y']
     rows = np.empty((len(centers), 4)).tolist()
     for i in range(len(rows)):
@@ -222,16 +293,18 @@ def save_cluster_info(dataset, centers, sigma):
         writer.writerows(rows)
 
 def load_cluster_info(dataset):
-    info_path = options.base_path+'output/'+ dataset+'_cluster_info.csv'
+    info_path = options.base_path+'output/'+ dataset+'_'+str(options.tokenizer.fuzzy_rule_num)+'_rule_cluster_info.csv'
     centers = []
     sigma = []
     with open(info_path, encoding='utf-8') as f:
         reader = csv.reader(f)
         headers = next(reader)
-        print(headers)
+        # print(headers)
         for row in reader:
-            centers.append([row[0], row[1]])
-            sigma.append([row[2], row[3]])
+            centers.append([float(row[0]), float(row[1])])
+            sigma.append([float(row[2]), float(row[3])])
+    centers = torch.Tensor(centers).to(options.device)
+    sigma = torch.Tensor(sigma).to(options.device)
     return centers, sigma
 
 def save_tokenizer_vocab(dataset, vocab):
@@ -304,9 +377,36 @@ class FuzzyTokenizer(nn.Module):
         self.rule_num = rule_num
         self.feature_num = feature_in
         coarse_tokenzier = get_tokenizer("basic_english")
-        middle_tokenizer = get_base_tokenizer('bert-base-uncased')
-        fine_tokenizer = get_base_tokenizer('vs4000_wmt14_tokenizer')
-        self.tokenizers = [coarse_tokenzier, middle_tokenizer, fine_tokenizer]
+        middle_tokenizer = get_base_tokenizer('bert-base-uncased') #vs30359
+        fine_tokenizer = get_base_tokenizer('fuzzy_vs4000_tokenizer')
+        tokenizers = [coarse_tokenzier,
+                    get_base_tokenizer('fuzzy_vs100000_tokenizer'),
+                    get_base_tokenizer('fuzzy_vs80000_tokenizer'),
+                    get_base_tokenizer('fuzzy_vs60000_tokenizer'),
+                    get_base_tokenizer('fuzzy_vs50000_tokenizer'),
+                    get_base_tokenizer('fuzzy_vs40000_tokenizer'),
+                    middle_tokenizer,#vs30359
+                    get_base_tokenizer('fuzzy_vs30000_tokenizer'),
+                    get_base_tokenizer('fuzzy_vs20000_tokenizer'),
+                    get_base_tokenizer('fuzzy_vs10000_tokenizer'),
+                    get_base_tokenizer('fuzzy_vs9000_tokenizer'),
+                    get_base_tokenizer('fuzzy_vs8000_tokenizer'),
+                    get_base_tokenizer('fuzzy_vs7000_tokenizer'),
+                    get_base_tokenizer('fuzzy_vs6000_tokenizer'),
+                    get_base_tokenizer('fuzzy_vs5000_tokenizer'),
+                    fine_tokenizer]
+        self.tokenizers = []
+        tokenizer_num = len(tokenizers)
+        if rule_num == 1:
+            self.tokenizers = [coarse_tokenzier]
+        # elif rule_num == 2:
+        #     self.tokenizers = [coarse_tokenzier, middle_tokenizer]
+        # elif rule_num == 3:
+        #     self.tokenizers = [coarse_tokenzier, middle_tokenizer, fine_tokenizer]
+        else:
+            for i in range(rule_num):
+                idx = int(i * tokenizer_num / rule_num)
+                self.tokenizers.append(tokenizers[idx])
     def fuzzy_layer(self, x):
         delta = x - self.center # torch tensor broadcast
         value = torch.square(torch.div(delta , self.sigma))
@@ -320,7 +420,7 @@ class FuzzyTokenizer(nn.Module):
     def norm_layer(self, products):
         sum = torch.sum(products)
         if sum.item() == 0:
-            print("sum is 0")
+            # print("sum is 0")
             return products
         products = products/sum
         return products
@@ -345,19 +445,38 @@ class FuzzyTokenizer(nn.Module):
 
 def train_tokenizers():
     log_file = logger.add(options.base_path+'output/tokenizers-'+str(datetime.date.today()) +'.log')
-    train_tokenizer('wmt14', 1000)
-    train_tokenizer('wmt14', 4000)
-    train_tokenizer('wmt14', 10000)
-    train_tokenizer('wmt14', 50000)
-    train_tokenizer('wmt14', 100000)
-    train_tokenizer('wmt14', 150000)
-    train_tokenizer('wmt14', 200000)
-    train_tokenizer('wmt16', 1000)
-    train_tokenizer('wmt16', 4000)
-    train_tokenizer('wmt16', 10000)
-    train_tokenizer('opus100', 1000)
-    train_tokenizer('opus100', 4000)
-    train_tokenizer('opus100', 10000)
+    # train_tokenizer('wmt14', 1000)
+    # train_tokenizer('wmt14', 4000)
+    # train_tokenizer('wmt14', 10000)
+    # train_tokenizer('wmt14', 50000)
+    # train_tokenizer('wmt14', 100000)
+    # train_tokenizer('wmt14', 150000)
+    # train_tokenizer('wmt14', 200000)
+    # train_tokenizer('wmt16', 1000)
+    # train_tokenizer('wmt16', 4000)
+    # train_tokenizer('wmt16', 10000)
+    # train_tokenizer('opus100', 1000)
+    # train_tokenizer('opus100', 4000)
+    # train_tokenizer('opus100', 10000)
+    epoch = 10
+    for _ in range(epoch):
+        train_fuzzy_tokenizer(100000)
+        train_fuzzy_tokenizer(80000)
+        train_fuzzy_tokenizer(60000)
+        train_fuzzy_tokenizer(50000)
+        train_fuzzy_tokenizer(40000)
+        train_fuzzy_tokenizer(30000)
+        train_fuzzy_tokenizer(20000)
+        train_fuzzy_tokenizer(10000)
+        train_fuzzy_tokenizer(9000)
+        train_fuzzy_tokenizer(8000)
+        train_fuzzy_tokenizer(7000)
+        train_fuzzy_tokenizer(6000)
+        train_fuzzy_tokenizer(5000)
+        train_fuzzy_tokenizer(4000)
+        train_fuzzy_tokenizer(3000)
+        train_fuzzy_tokenizer(2000)
+    train_fuzzy_tokenizer(1000)
     logger.remove(log_file)
 
 def dataset_token_clustering():
@@ -367,32 +486,51 @@ def dataset_token_clustering():
     token_cluster_iter('opus100', options.rule_num)
     logger.remove(log_file)
 
-def run():
-    # dataset_token_clustering()
-    # points = [[1,2,3,4,5,6],[7,2,3,4,5,6],[3,2,3,4,5,6],[5,2,3,4,5,6]]
-    # pout = order_point(points)
-    # print(pout)
-    dataset = 'atis'
-    if dataset == 'wmt14' or dataset == 'wmt16' or dataset == 'opus100' or dataset == 'tatoeba':
+def get_fuzzy_tokenizer(dataset):
+    info_path = info_path = options.base_path+'output/'+ dataset+'_'+str(options.tokenizer.fuzzy_rule_num)+'_rule_cluster_info.csv'
+    vocab_path = options.base_path+'output/'+ dataset+'_tokenizer_vocab.pickle'
+    if os.path.exists(info_path) and os.path.exists(vocab_path):
         centers, sigma = load_cluster_info(dataset)
         vocab = load_tokenizer_vocab(dataset)
     else:
         tokenizer = get_tokenizer("basic_english")
         train_tokens, valid_tokens,  test_tokens = read_raw_data(dataset, tokenizer)
         tokens =  train_tokens + valid_tokens + test_tokens
-        centers, sigma,vocab = token_cluster(tokens, options.rule_num)
+        centers, sigma,vocab = token_cluster(tokens, options.tokenizer.fuzzy_rule_num)
         save_cluster_info(dataset, centers, sigma)
         save_tokenizer_vocab(dataset, vocab)
         centers = torch.from_numpy(centers).to(options.device)
         sigma = torch.from_numpy(sigma).to(options.device)
-    fuzzy_tonkenizer = FuzzyTokenizer(options.feature_num, options.rule_num, centers, sigma, vocab)
-    for data in tokens[:100]:
-        sen = " ".join(i for i in data[0])
-        out = fuzzy_tonkenizer(sen)
-        print(out)
-        sen = " ".join(i for i in data[1])
-        out = fuzzy_tonkenizer(sen)
-        print(out)
+    fuzzy_tonkenizer = FuzzyTokenizer(options.tokenizer.fuzzy_feature_num, options.tokenizer.fuzzy_rule_num, centers, sigma, vocab)
+    return fuzzy_tonkenizer
+
+def run():
+    # dataset_token_clustering()
+    # points = [[1,2,3,4,5,6],[7,2,3,4,5,6],[3,2,3,4,5,6],[5,2,3,4,5,6]]
+    # pout = order_point(points)
+    # print(pout)
+    # dataset = 'atis'
+    # if dataset == 'wmt14' or dataset == 'wmt16' or dataset == 'opus100' or dataset == 'tatoeba':
+    #     centers, sigma = load_cluster_info(dataset)
+    #     vocab = load_tokenizer_vocab(dataset)
+    # else:
+    #     tokenizer = get_tokenizer("basic_english")
+    #     train_tokens, valid_tokens,  test_tokens = read_raw_data(dataset, tokenizer)
+    #     tokens =  train_tokens + valid_tokens + test_tokens
+    #     centers, sigma,vocab = token_cluster(tokens, options.rule_num)
+    #     save_cluster_info(dataset, centers, sigma)
+    #     save_tokenizer_vocab(dataset, vocab)
+    #     centers = torch.from_numpy(centers).to(options.device)
+    #     sigma = torch.from_numpy(sigma).to(options.device)
+    # fuzzy_tonkenizer = FuzzyTokenizer(options.feature_num, options.rule_num, centers, sigma, vocab)
+    # for data in tokens[:100]:
+    #     sen = " ".join(i for i in data[0])
+    #     out = fuzzy_tonkenizer(sen)
+    #     print(out)
+    #     sen = " ".join(i for i in data[1])
+    #     out = fuzzy_tonkenizer(sen)
+    #     print(out)
+    train_tokenizers()
     return 0
 
-run()
+# run()

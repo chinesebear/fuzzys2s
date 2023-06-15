@@ -18,7 +18,22 @@ from transformers import T5Tokenizer, T5ForConditionalGeneration,MT5ForCondition
     Seq2SeqTrainingArguments, Seq2SeqTrainer,AutoModelForCausalLM,CodeGenModel,RobertaForCausalLM,\
     PegasusForConditionalGeneration, PegasusTokenizer, PegasusXForConditionalGeneration
 from datasets import load_dataset,load_from_disk,Dataset
+from fuzzy_tokenizer import get_fuzzy_tokenizer
+import csv
 
+def setup_seed(seed):
+    # https://zhuanlan.zhihu.com/p/462570775
+    torch.use_deterministic_algorithms(True) # 检查pytorch中有哪些不确定性
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"  # 大于CUDA 10.2 需要设置
+    logger.info("seed: %d, random:%.4f, torch random:%.4f, np random:%.4f" %(seed, random.random(), torch.rand(1), np.random.rand(1)))
 
 def model_info(model):
     logger.info("[model %s]" %(model.name))
@@ -26,8 +41,8 @@ def model_info(model):
     total_params = sum(p.numel() for p in model.parameters())
     total_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info("total parameters: %d, trainable  parameters: %d " %(total_params,total_trainable_params))
-    for name,parameters in model.named_parameters():
-        logger.info('%s : %s' %(name,str(parameters.size())))
+    # for name,parameters in model.named_parameters():
+    #     logger.info('%s : %s' %(name,str(parameters.size())))
 
 def model_param(model):
     total_params = sum(p.numel() for p in model.parameters())
@@ -123,22 +138,54 @@ def model_finetune2(model,model_path, tokenizer,task_prefix, train_sen_pairs, va
     logger.info('model fine tune done')
     model.eval()
 
-def setup_seed(seed):
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-    torch.backends.cudnn.deterministic = True
-
 def savemodel(model,file):
-    torch.save(model.state_dict(), options.model_parameter_path+file+".pth")
+    if options.tokenizer.fuzzy:
+        path = options.model_parameter_path+file+"_fuzzy.pth"
+    else:
+        path = options.model_parameter_path+file+"_basic.pth"
+    torch.save(model.state_dict(), path)
     logger.info("save %s model parameters done." %(file))
 
 def loadmodel(model, file):
-    if os.path.exists(options.model_parameter_path+file+".pth"):
-        model.load_state_dict(torch.load(options.model_parameter_path+file+".pth"))
+    if options.tokenizer.fuzzy:
+        path = options.model_parameter_path+file+"_fuzzy.pth"
+    else:
+        path = options.model_parameter_path+file+"_basic.pth"
+    if os.path.exists(path):
+        model.load_state_dict(torch.load(path))
         model.eval()
         logger.info("load %s model parameters done." %(file))
+
+def save_train_info(name, data, attach=False):
+    logger.info("save %s train info..." %(name))
+    info_path = options.base_path+'output/train_'+name+'.csv'
+    headers = ['loss', 'acc']
+    rows = np.empty((len(data), 2)).tolist()
+    for i in range(len(rows)):
+        rows[i][0] = data[i][0]
+        rows[i][1] = data[i][1]
+    if attach:
+        with open(info_path, 'a', encoding='utf-8', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerows(rows)
+    else :
+        with open(info_path, 'w', encoding='utf-8', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(headers)
+            writer.writerows(rows)
+
+def load_train_info(name):
+    logger.info("load %s centers..." %(name))
+    info_path = options.base_path+'output/train_'+name+'.csv'
+    data = []
+    with open(info_path, encoding='utf-8') as f:
+        reader = csv.reader(f)
+        headers = next(reader)
+        print(headers)
+        for row in reader:
+            data.append([row[0], row[1]])
+    return data
+
 
 def tensor2string(input_lang, source):
    output =  [input_lang.index2word[idx.item()] for idx in source]
@@ -285,7 +332,7 @@ def valid(model, valid_data,evaluator):
         total_bleu = total_bleu + bleu
     return total_loss/count, total_acc/count,total_bleu/count
 
-def train(model, model_name, dataset_name, train_data, valid_data, test_data, vocab_src, vocab_tgt, pretrain_used=False, epoch_num = options.epoch):
+def train(model, model_name, dataset_name, train_data, valid_data, test_data, vocab_src, vocab_tgt, pretrain_used=False, continual_learning=False,epoch_num = options.epoch):
     optimizer = torch.optim.Adam(model.parameters(), lr=options.learning_rate, weight_decay=0)
     criterion = nn.CrossEntropyLoss()
     evaluator = Evaluator()
@@ -294,7 +341,8 @@ def train(model, model_name, dataset_name, train_data, valid_data, test_data, vo
     if pretrain_used == True :
         loadmodel(model, model_name + '-' +dataset_name)
     else:
-        # loadmodel(model, model_name + '-' +dataset_name)
+        if continual_learning:
+            loadmodel(model, model_name + '-' +dataset_name)
         model.train()
         train_results = []
         for epoch in range(epoch_num):
@@ -304,7 +352,6 @@ def train(model, model_name, dataset_name, train_data, valid_data, test_data, vo
             #     logger.info("model: %s, dataset: %s, epoch %d result is best" %(model_name, dataset_name, epoch))
             #     logger.info("acc: %s" %(str(train_results[-1])))
             #     break
-            train_result=[]
             for src, tgt in tqdm(train_data,'train data'):
                 if len(src) > options.sen_len_max:
                     src = src[:options.sen_len_max]
@@ -332,7 +379,7 @@ def train(model, model_name, dataset_name, train_data, valid_data, test_data, vo
                 if count % int(len(train_data)/10) ==0:
                     valid_loss, acc, bleu = valid(model, valid_data, evaluator)
                     logger.info("[%s-%s]epoch: %d, count: %d, train loss: %.4f, valid loss: %.4f, acc: %.2f" %(model_name, dataset_name, epoch, count, total_loss/count, valid_loss,acc))
-                    train_result.append(acc)
+                    train_results.append([total_loss/count, acc])
                     # for name, parms in model.named_parameters():
                     #     # encoder.rfs_block.center
                     #     # encoder.rfs_block.sigma
@@ -349,15 +396,22 @@ def train(model, model_name, dataset_name, train_data, valid_data, test_data, vo
                     #         # print('-->para:', parms)
                     #         print('-->grad_requirs:',parms.requires_grad)
                     #         print('-->grad_value:',parms.grad)
-            train_results.append(train_result)
+
         savemodel(model,model_name + '-' +dataset_name)
+        if continual_learning:
+            attach = True
+        else:
+            attach = False
+        save_train_info(model_name+'_'+dataset_name, train_results, attach=attach)
     result = predict(model, test_data, vocab_src, vocab_tgt, evaluator)
     result['model_name'] = model_name
     result['dataset_name'] = dataset_name
+    result['epoch'] = epoch_num
     logger.info("[%s-%s]acc: %.2f, sen_bleu: %.2f, meteor: %.2f" %(result['model_name'],result['dataset_name'] ,result['acc'], result['sen_bleu'], result['meteor']))
+    logger.info("[ablation]fuzzy tokenizer: %s, fuzzy vae: %s" %(str(options.ablation.fuzzy_tokenizer), str(options.ablation.fuzzy_vae)))
     return result
 
-def s2s_task(dataset_name, tokenizer, pretrain_used=False):
+def s2s_task(dataset_name, tokenizer, pretrain_used=False, continual_learning=False):
     model_name = 'fuzzys2s'
     log_file = logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
     logger.info('model %s on dataset %s start...' %(model_name, dataset_name))
@@ -377,7 +431,7 @@ def s2s_task(dataset_name, tokenizer, pretrain_used=False):
                              options.trans.drop_out).to(options.device)
     loadmodel(trans_model, 'transformer-'+dataset_name)
     model = FuzzyS2S(vocab_src, vocab_tgt, options.feature_num, options.rule_num, center_src, sigma_src, center_tgt, sigma_tgt, trans_model).to(options.device)
-    result = train(model, model_name, dataset_name, train_data, valid_data[:10], test_data, vocab_src, vocab_tgt, pretrain_used, epoch_num=1)
+    result = train(model, model_name, dataset_name, train_data, valid_data, test_data, vocab_src, vocab_tgt, pretrain_used, continual_learning,epoch_num=1)
     logger.remove(log_file)
     return result
 
@@ -420,7 +474,7 @@ def rnn_task(dataset_name, tokenizer, pretrain_used=False):
     logger.remove(log_file)
     return result
 
-def trans_task(dataset_name, tokenizer, pretrain_used=False):
+def trans_task(dataset_name, tokenizer, pretrain_used=False, continual_learning=False):
     model_name = 'transformer'
     log_file = logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
     logger.info('model %s on dataset %s start...' %(model_name, dataset_name))
@@ -433,7 +487,7 @@ def trans_task(dataset_name, tokenizer, pretrain_used=False):
                              options.trans.hidden_size,
                              options.trans.nlayer,
                              options.trans.drop_out).to(options.device)
-    result = train(model, model_name, dataset_name, train_data, valid_data[:10], test_data, vocab_src, vocab_tgt, pretrain_used, epoch_num=1)
+    result = train(model, model_name, dataset_name, train_data, valid_data, test_data, vocab_src, vocab_tgt, pretrain_used, continual_learning, epoch_num=1)
     logger.remove(log_file)
     return result
 
@@ -998,12 +1052,15 @@ def pegasus_x_task(model_name, dataset_name, pretrain_used=True, fine_tuning=Fal
 def run():
     # datasets =['opus_euconst', 'tatoeba','opus100','wmt14', 'ubuntu']
     # datasets =['hearthstone', 'magic', 'geo',  'spider']
-    # datasets =['cnn_dailymail', 'samsum', 'xsum', 'billsum', 'orangesum', 'xlsum']
-    datasets= ['opus_euconst']
+    # datasets =['cnn_dailymail', 'samsum',  'billsum', 'xlsum']
+    datasets= ['hearthstone']
     results = []
-    tokenizer = get_tokenizer("basic_english")
-    # tokenizer = get_base_tokenizer('bert-base-uncased')
     for dataset in datasets:
+        if options.ablation.fuzzy_tokenizer:
+            tokenizer = get_fuzzy_tokenizer(dataset)
+        else:
+            tokenizer = get_tokenizer("basic_english")
+        # tokenizer = get_base_tokenizer('bert-base-uncased')
         # result = t5_task('t5-small',dataset,fine_tuning=True)
         # results.append(result)
         # result = t5_task('t5-base',dataset,fine_tuning=True)
@@ -1020,14 +1077,14 @@ def run():
         # results.append(result)
         # result = opus_mt_task('Helsinki-NLP/opus-mt-en-fr', dataset, fine_tuning=True)
         # results.append(result)
-        result = trans_task(dataset, tokenizer,pretrain_used=False)
-        results.append(result)
+        # result = trans_task(dataset, tokenizer,pretrain_used=False)
+        # results.append(result)
         result = s2s_task(dataset, tokenizer,pretrain_used=False)
         results.append(result)
         # result = s2s_b_task(dataset, tokenizer,pretrain_used=False)
         # results.append(result)
-        result = rnn_task(dataset, tokenizer,pretrain_used=False)
-        results.append(result)
+        # result = rnn_task(dataset, tokenizer,pretrain_used=False)
+        # results.append(result)
         # result = codet5_task('Salesforce/codet5-small',dataset)
         # results.append(result)
         # result = codet5_task('Salesforce/codet5-base',dataset)
@@ -1051,6 +1108,12 @@ def run():
     log_file = logger.add(options.base_path+'output/result-'+str(datetime.date.today()) +'.log')
     for result in results:
         logger.info("------------------------------------result------------------------------------------" )
+        if 'epoch' in result:
+            epoch = result['epoch']
+        else:
+            epoch = -1
+        logger.info("epoch: %d, embedding: %d, rule_num: %d, fuzzy_rule_num:%d" %(epoch, options.trans.embedding_dim, options.rule_num, options.tokenizer.fuzzy_rule_num))
+        logger.info("ablation fuzzy_tokenizer: %s, fuzzy_vae: %s" %(str(options.ablation.fuzzy_tokenizer), str(options.ablation.fuzzy_vae)))
         logger.info("model: %s, datset: %s, acc   : %.2f, sen_bleu: %.2f" %(result['model_name'], result['dataset_name'], result['acc'], result['sen_bleu']))
         logger.info("model: %s, datset: %s, sacre_bleu: %.2f, google_bleu: %.2f" %(result['model_name'], result['dataset_name'], result['sacre_bleu'], result['google_bleu']))
         logger.info("model: %s, datset: %s, chrf2 : %.2f, ter: %.2f" %(result['model_name'], result['dataset_name'], result['chrf2'], result['ter']))

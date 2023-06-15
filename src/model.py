@@ -180,7 +180,7 @@ class FuzzySystem(nn.Module):
     def norm_layer(self, products):
         sum = torch.sum(products)
         if sum.item() == 0:
-            print("sum is 0")
+            # print("sum is 0")
             return products
         products = products/sum
         return products
@@ -254,6 +254,14 @@ class FuzzyS2S(nn.Module):
         self.vocab_tgt = vocab_tgt
         src_vocab_size = vocab_src.n_words
         tgt_vocab_size = vocab_tgt.n_words
+        if options.ablation.fuzzy_vae:
+            self.encoder = FuzzyEncoder(src_vocab_size, feature_num, rule_num, src_center, src_sigma, model.encoder).to(options.device)
+        else:
+            self.encoder = model.encoder.to(options.device)
+        if options.ablation.fuzzy_vae:
+            self.decoder = FuzzyDecoder(tgt_vocab_size, feature_num, rule_num, tgt_center, tgt_sigma, model.decoder).to(options.device)
+        else:
+            self.decoder = model.decoder.to(options.device)
         self.encoder = FuzzyEncoder(src_vocab_size, feature_num, rule_num, src_center, src_sigma, model.encoder).to(options.device)
         self.decoder = FuzzyDecoder(tgt_vocab_size, feature_num, rule_num, tgt_center, tgt_sigma, model.decoder).to(options.device)
     def forward(self, src, tgt):
@@ -261,6 +269,14 @@ class FuzzyS2S(nn.Module):
         tgt_with_sos = insert_sos(tgt)
         src_features = torch.tensor(gen_sen_feature_map(self.vocab_src, src)).to(options.device)
         tgt_features = torch.tensor(gen_sen_feature_map(self.vocab_tgt, tgt)).to(options.device)
+        # if options.ablation.fuzzy_vae:
+        #     memory = self.encoder(src_with_eos, src_features)
+        # else:
+        #     memory = self.encoder(src_with_eos) # seq_len* batch* embedding_dim
+        # if options.ablation.fuzzy_vae:
+        #     output = self.decoder(tgt_with_sos, tgt_features, memory)
+        # else:
+        #     output = self.decoder(tgt_with_sos, memory)
         memory = self.encoder(src_with_eos, src_features)
         output = self.decoder(tgt_with_sos, tgt_features, memory)
         return output
