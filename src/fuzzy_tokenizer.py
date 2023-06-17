@@ -444,7 +444,7 @@ class FuzzyTokenizer(nn.Module):
 
 
 def train_tokenizers():
-    log_file = logger.add(options.base_path+'output/tokenizers-'+str(datetime.date.today()) +'.log')
+    log_file = logger.add(options.base_path+'output/log/tokenizers-'+str(datetime.date.today()) +'.log')
     # train_tokenizer('wmt14', 1000)
     # train_tokenizer('wmt14', 4000)
     # train_tokenizer('wmt14', 10000)
@@ -480,7 +480,7 @@ def train_tokenizers():
     logger.remove(log_file)
 
 def dataset_token_clustering():
-    log_file=logger.add(options.base_path+'output/fuzzy-tokenizer-clustering-'+str(datetime.date.today()) +'.log')
+    log_file=logger.add(options.base_path+'output/log/fuzzy-tokenizer-clustering-'+str(datetime.date.today()) +'.log')
     token_cluster_iter('wmt14', options.rule_num)
     token_cluster_iter('wmt16', options.rule_num)
     token_cluster_iter('opus100', options.rule_num)

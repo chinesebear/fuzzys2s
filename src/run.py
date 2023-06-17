@@ -139,18 +139,34 @@ def model_finetune2(model,model_path, tokenizer,task_prefix, train_sen_pairs, va
     model.eval()
 
 def savemodel(model,file):
-    if options.tokenizer.fuzzy:
-        path = options.model_parameter_path+file+"_fuzzy.pth"
+    if model.name == "fuzzys2s":
+        if options.tokenizer.fuzzy:
+            path = options.model_parameter_path+file+"_"+options.tokenizer.fuzzy_rule_num+"_rule_"+options.rule_num+"_rule_fuzzy.pth"
+        else:
+            path = options.model_parameter_path+file+"_"+options.rule_num+"_rule_basic.pth"
+    elif model.name == "transformer":
+        if options.tokenizer.fuzzy:
+            path = options.model_parameter_path+file+"_"+options.tokenizer.fuzzy_rule_num+"_rule_fuzzy.pth"
+        else:
+            path = options.model_parameter_path+file+"_basic.pth"
     else:
-        path = options.model_parameter_path+file+"_basic.pth"
+         path = options.model_parameter_path+file+".pth"
     torch.save(model.state_dict(), path)
     logger.info("save %s model parameters done." %(file))
 
 def loadmodel(model, file):
-    if options.tokenizer.fuzzy:
-        path = options.model_parameter_path+file+"_fuzzy.pth"
+    if model.name == "fuzzys2s":
+        if options.tokenizer.fuzzy:
+            path = options.model_parameter_path+file+"_"+options.tokenizer.fuzzy_rule_num+"_rule_"+options.rule_num+"_rule_fuzzy.pth"
+        else:
+            path = options.model_parameter_path+file+"_"+options.rule_num+"_rule_basic.pth"
+    elif model.name == "transformer":
+        if options.tokenizer.fuzzy:
+            path = options.model_parameter_path+file+"_"+options.tokenizer.fuzzy_rule_num+"_rule_fuzzy.pth"
+        else:
+            path = options.model_parameter_path+file+"_basic.pth"
     else:
-        path = options.model_parameter_path+file+"_basic.pth"
+         path = options.model_parameter_path+file+".pth"
     if os.path.exists(path):
         model.load_state_dict(torch.load(path))
         model.eval()
@@ -158,7 +174,7 @@ def loadmodel(model, file):
 
 def save_train_info(name, data, attach=False):
     logger.info("save %s train info..." %(name))
-    info_path = options.base_path+'output/train_'+name+'.csv'
+    info_path = options.base_path+'output/csv/train_'+name+'.csv'
     headers = ['loss', 'acc']
     rows = np.empty((len(data), 2)).tolist()
     for i in range(len(rows)):
@@ -176,7 +192,7 @@ def save_train_info(name, data, attach=False):
 
 def load_train_info(name):
     logger.info("load %s centers..." %(name))
-    info_path = options.base_path+'output/train_'+name+'.csv'
+    info_path = options.base_path+'output/csv/train_'+name+'.csv'
     data = []
     with open(info_path, encoding='utf-8') as f:
         reader = csv.reader(f)
@@ -413,7 +429,7 @@ def train(model, model_name, dataset_name, train_data, valid_data, test_data, vo
 
 def s2s_task(dataset_name, tokenizer, pretrain_used=False, continual_learning=False):
     model_name = 'fuzzys2s'
-    log_file = logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
+    log_file = logger.add(options.base_path+'output/log/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
     logger.info('model %s on dataset %s start...' %(model_name, dataset_name))
     setup_seed(options.seed_id)
     train_data, valid_data, test_data, vocab_src, vocab_tgt = read_data(dataset_name, tokenizer)
@@ -437,7 +453,7 @@ def s2s_task(dataset_name, tokenizer, pretrain_used=False, continual_learning=Fa
 
 def s2s_b_task(dataset_name, tokenizer, pretrain_used=False):
     model_name = 'fuzzys2s_b'
-    log_file = logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
+    log_file = logger.add(options.base_path+'output/log/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
     logger.info('model %s on dataset %s start...' %(model_name, dataset_name))
     setup_seed(options.seed_id)
     train_data, valid_data, test_data, vocab_src, vocab_tgt = read_data(dataset_name, tokenizer)
@@ -461,7 +477,7 @@ def s2s_b_task(dataset_name, tokenizer, pretrain_used=False):
 
 def rnn_task(dataset_name, tokenizer, pretrain_used=False):
     model_name = 'rnn'
-    log_file = logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
+    log_file = logger.add(options.base_path+'output/log/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
     logger.info('model %s on dataset %s start...' %(model_name, dataset_name))
     setup_seed(options.seed_id)
     train_data, valid_data, test_data, vocab_src, vocab_tgt = read_data(dataset_name, tokenizer)
@@ -476,7 +492,7 @@ def rnn_task(dataset_name, tokenizer, pretrain_used=False):
 
 def trans_task(dataset_name, tokenizer, pretrain_used=False, continual_learning=False):
     model_name = 'transformer'
-    log_file = logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
+    log_file = logger.add(options.base_path+'output/log/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
     logger.info('model %s on dataset %s start...' %(model_name, dataset_name))
     setup_seed(options.seed_id)
     train_data, valid_data, test_data, vocab_src, vocab_tgt = read_data(dataset_name, tokenizer)
@@ -492,7 +508,7 @@ def trans_task(dataset_name, tokenizer, pretrain_used=False, continual_learning=
     return result
 
 def t5_task(model_name, dataset_name, pretrain_used=True, fine_tuning=False, task_prefix="translate English to French: "):
-    log_file = logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
+    log_file = logger.add(options.base_path+'output/log/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
     logger.info('model %s on dataset %s start...' %(model_name, dataset_name))
     setup_seed(options.seed_id)
     train_sen_pairs, valid_sen_pairs, test_sen_pairs = read_data(dataset_name, sen_out=True)
@@ -563,7 +579,7 @@ def t5_task(model_name, dataset_name, pretrain_used=True, fine_tuning=False, tas
     return result
 
 def mt5_task(model_name, dataset_name, pretrain_used=True):
-    log_file = logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
+    log_file = logger.add(options.base_path+'output/log/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
     logger.info('model %s on dataset %s start...' %(model_name, dataset_name))
     setup_seed(options.seed_id)
     train_sen_pairs, valid_sen_pairs, test_sen_pairs = read_data(dataset_name, sen_out=True)
@@ -629,7 +645,7 @@ def mt5_task(model_name, dataset_name, pretrain_used=True):
     return result
 
 def opus_mt_task(model_name, dataset_name, pretrain_used=True, fine_tuning=False):
-    log_file = logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
+    log_file = logger.add(options.base_path+'output/log/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
     logger.info('model %s on dataset %s start...' %(model_name, dataset_name))
     setup_seed(options.seed_id)
     train_sen_pairs, valid_sen_pairs, test_sen_pairs = read_data(dataset_name, sen_out=True)
@@ -698,7 +714,7 @@ def opus_mt_task(model_name, dataset_name, pretrain_used=True, fine_tuning=False
     return result
 
 def codet5_task(model_name, dataset_name, pretrain_used=True):
-    log_file = logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
+    log_file = logger.add(options.base_path+'output/log/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
     logger.info('model %s on dataset %s start...' %(model_name, dataset_name))
     setup_seed(options.seed_id)
     train_sen_pairs, valid_sen_pairs, test_sen_pairs = read_data(dataset_name, sen_out=True)
@@ -765,7 +781,7 @@ def codet5_task(model_name, dataset_name, pretrain_used=True):
     return result
 
 def codegen_task(model_name, dataset_name, pretrain_used=True):
-    log_file = logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
+    log_file = logger.add(options.base_path+'output/log/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
     logger.info('model %s on dataset %s start...' %(model_name, dataset_name))
     setup_seed(options.seed_id)
     train_sen_pairs, valid_sen_pairs, test_sen_pairs = read_data(dataset_name, sen_out=True)
@@ -843,7 +859,7 @@ def codegen_task(model_name, dataset_name, pretrain_used=True):
 
 
 def codebert_task(model_name, dataset_name, pretrain_used=True):
-    log_file = logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
+    log_file = logger.add(options.base_path+'output/log/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
     logger.info('model %s on dataset %s start...' %(model_name, dataset_name))
     setup_seed(options.seed_id)
     train_sen_pairs, valid_sen_pairs, test_sen_pairs = read_data(dataset_name, sen_out=True)
@@ -919,7 +935,7 @@ def codebert_task(model_name, dataset_name, pretrain_used=True):
     return result
 
 def pegasus_task(model_name, dataset_name, pretrain_used=True, fine_tuning=False, task_prefix=""):
-    log_file = logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
+    log_file = logger.add(options.base_path+'output/log/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
     logger.info('model %s on dataset %s start...' %(model_name, dataset_name))
     setup_seed(options.seed_id)
     train_sen_pairs, valid_sen_pairs, test_sen_pairs = read_data(dataset_name, sen_out=True)
@@ -984,7 +1000,7 @@ def pegasus_task(model_name, dataset_name, pretrain_used=True, fine_tuning=False
     return result
 
 def pegasus_x_task(model_name, dataset_name, pretrain_used=True, fine_tuning=False, task_prefix=""):
-    log_file = logger.add(options.base_path+'output/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
+    log_file = logger.add(options.base_path+'output/log/'+model_name+'-'+dataset_name+'-'+str(datetime.date.today()) +'.log')
     logger.info('model %s on dataset %s start...' %(model_name, dataset_name))
     setup_seed(options.seed_id)
     train_sen_pairs, valid_sen_pairs, test_sen_pairs = read_data(dataset_name, sen_out=True)
@@ -1105,7 +1121,7 @@ def run():
         # results.append(result)
         # result = pegasus_x_task('google/pegasus-x-large',dataset)
         # results.append(result)
-    log_file = logger.add(options.base_path+'output/result-'+str(datetime.date.today()) +'.log')
+    log_file = logger.add(options.base_path+'output/result/result-'+str(datetime.date.today()) +'.log')
     for result in results:
         logger.info("------------------------------------result------------------------------------------" )
         if 'epoch' in result:
