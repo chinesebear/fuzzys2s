@@ -279,7 +279,7 @@ def fcm_cluster(data, cluster_num, h):
     return centers,sigma
 
 def save_cluster_info(dataset, centers, sigma):
-    info_path = options.base_path+'output/'+ dataset+'_'+str(options.tokenizer.fuzzy_rule_num)+'_rule_cluster_info.csv'
+    info_path = options.base_path+'output/fuzzy_tokenizer/'+ dataset+'_'+str(options.tokenizer.fuzzy_rule_num)+'_rule_cluster_info.csv'
     headers = ['center_x', 'center_y', 'sigma_x', 'sigma_y']
     rows = np.empty((len(centers), 4)).tolist()
     for i in range(len(rows)):
@@ -293,7 +293,7 @@ def save_cluster_info(dataset, centers, sigma):
         writer.writerows(rows)
 
 def load_cluster_info(dataset):
-    info_path = options.base_path+'output/'+ dataset+'_'+str(options.tokenizer.fuzzy_rule_num)+'_rule_cluster_info.csv'
+    info_path = options.base_path+'output/fuzzy_tokenizer/'+ dataset+'_'+str(options.tokenizer.fuzzy_rule_num)+'_rule_cluster_info.csv'
     centers = []
     sigma = []
     with open(info_path, encoding='utf-8') as f:
@@ -309,13 +309,13 @@ def load_cluster_info(dataset):
 
 def save_tokenizer_vocab(dataset, vocab):
     logger.info("save %s tokenizer vocab..." %(dataset))
-    vocab_path = options.base_path+'output/'+ dataset+'_tokenizer_vocab.pickle'
+    vocab_path = options.base_path+'output/fuzzy_tokenizer/'+ dataset+'_'+str(options.tokenizer.fuzzy_rule_num)+'_rule_tokenizer_vocab.pickle'
     with open(vocab_path, 'wb') as f: # open file with write-mode
         pickle.dump(vocab, f) # serialize and save object
 
 def load_tokenizer_vocab(dataset):
     logger.info("load %s tokenizer vocab..." %(dataset))
-    vocab_path = options.base_path+'output/'+ dataset+'_tokenizer_vocab.pickle'
+    vocab_path = options.base_path+'output/fuzzy_tokenizer/'+ dataset+'_'+str(options.tokenizer.fuzzy_rule_num)+'_rule_tokenizer_vocab.pickle'
     with open(vocab_path, 'rb') as f:
         vocab = pickle.load(f)   # read file and build object
     return vocab
@@ -487,8 +487,8 @@ def dataset_token_clustering():
     logger.remove(log_file)
 
 def get_fuzzy_tokenizer(dataset):
-    info_path = info_path = options.base_path+'output/'+ dataset+'_'+str(options.tokenizer.fuzzy_rule_num)+'_rule_cluster_info.csv'
-    vocab_path = options.base_path+'output/'+ dataset+'_tokenizer_vocab.pickle'
+    info_path = info_path = options.base_path+'output/fuzzy_tokenizer/'+ dataset+'_'+str(options.tokenizer.fuzzy_rule_num)+'_rule_cluster_info.csv'
+    vocab_path = options.base_path+'output/fuzzy_tokenizer/'+ dataset+'_'+str(options.tokenizer.fuzzy_rule_num)+'_rule_tokenizer_vocab.pickle'
     if os.path.exists(info_path) and os.path.exists(vocab_path):
         centers, sigma = load_cluster_info(dataset)
         vocab = load_tokenizer_vocab(dataset)

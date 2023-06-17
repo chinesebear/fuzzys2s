@@ -77,7 +77,7 @@ def combine_sen_feature_map(data, vocab_src, vocab_tgt):
     return src_feature_map, tgt_feature_map
 
 def build_vocab(vocab_src, vocab_tgt, tokens):
-    for sentence in tokens:
+    for sentence in tqdm(tokens,'build vocab'):
         src = sentence[0]
         tgt = sentence[1]
         vocab_src.addTokens(src)
@@ -1133,9 +1133,7 @@ def order_center(centers, sigma):
         sigma[i] = [points[i][2], points[i][3]]
     return centers, sigma
 
-def fcm(data, cluster_num, h):
-    # input data type is numpy
-    # logger.info("fcm clustering...")
+def fcm_part(data, cluster_num,h):
     feature_num = len(data[0])
     fcm = FCM(n_clusters=cluster_num)
     fcm.fit(data)
@@ -1156,9 +1154,23 @@ def fcm(data, cluster_num, h):
                 b = b + membership[k][i]
             feature_sigma.append(h*a/b)
         sigma.append(feature_sigma)
-    # logger.info("cluster sigma: %d" %(len(sigma)))
-    # print("centers:",centers )
-    # print("sigma:", sigma)
+    return centers, sigma
+
+def fcm(data, cluster_num, h):
+    # input data type is numpy
+    total = len(data)
+    if total > 2000:
+        part_num = 1000
+        part = int(total / part_num)
+        centers = []
+        for i in tqdm(range(part_num),"fcm"):
+            data_p = data[i*part: (i+1)*part]
+            centers_p, _ = fcm_part(data_p, cluster_num, h)
+            centers.extend(centers_p)
+        centers = np.array(centers)
+        centers,sigma = fcm_part(centers, cluster_num,h)
+    else:
+        centers,sigma = fcm_part(data, cluster_num,h)
     centers,sigma = order_center(centers, sigma)
     centers_tensor = torch.tensor(centers, requires_grad=True).to(options.device)
     sigma_tensor = torch.tensor(sigma, requires_grad=True).to(options.device)

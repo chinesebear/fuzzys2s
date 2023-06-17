@@ -52,7 +52,7 @@ tok.test_len = 1000
 options.tok = tok
 
 tokenizer = Options("tokenizer")
-tokenizer.fuzzy = False  # fuzzy tokenizer or basic
+tokenizer.fuzzy = True  # fuzzy tokenizer or basic
 tokenizer.fuzzy_rule_num= 3
 tokenizer.fuzzy_feature_num = 2 #[size, count]
 options.tokenizer = tokenizer

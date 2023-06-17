@@ -141,12 +141,12 @@ def model_finetune2(model,model_path, tokenizer,task_prefix, train_sen_pairs, va
 def savemodel(model,file):
     if model.name == "fuzzys2s":
         if options.tokenizer.fuzzy:
-            path = options.model_parameter_path+file+"_"+options.tokenizer.fuzzy_rule_num+"_rule_"+options.rule_num+"_rule_fuzzy.pth"
+            path = options.model_parameter_path+file+"_"+str(options.tokenizer.fuzzy_rule_num)+"_rule_"+str(options.rule_num)+"_rule_fuzzy.pth"
         else:
-            path = options.model_parameter_path+file+"_"+options.rule_num+"_rule_basic.pth"
+            path = options.model_parameter_path+file+"_"+str(options.rule_num)+"_rule_basic.pth"
     elif model.name == "transformer":
         if options.tokenizer.fuzzy:
-            path = options.model_parameter_path+file+"_"+options.tokenizer.fuzzy_rule_num+"_rule_fuzzy.pth"
+            path = options.model_parameter_path+file+"_"+str(options.tokenizer.fuzzy_rule_num)+"_rule_fuzzy.pth"
         else:
             path = options.model_parameter_path+file+"_basic.pth"
     else:
@@ -157,12 +157,12 @@ def savemodel(model,file):
 def loadmodel(model, file):
     if model.name == "fuzzys2s":
         if options.tokenizer.fuzzy:
-            path = options.model_parameter_path+file+"_"+options.tokenizer.fuzzy_rule_num+"_rule_"+options.rule_num+"_rule_fuzzy.pth"
+            path = options.model_parameter_path+file+"_"+str(options.tokenizer.fuzzy_rule_num)+"_rule_"+str(options.rule_num)+"_rule_fuzzy.pth"
         else:
-            path = options.model_parameter_path+file+"_"+options.rule_num+"_rule_basic.pth"
+            path = options.model_parameter_path+file+"_"+str(options.rule_num)+"_rule_basic.pth"
     elif model.name == "transformer":
         if options.tokenizer.fuzzy:
-            path = options.model_parameter_path+file+"_"+options.tokenizer.fuzzy_rule_num+"_rule_fuzzy.pth"
+            path = options.model_parameter_path+file+"_"+str(options.tokenizer.fuzzy_rule_num)+"_rule_fuzzy.pth"
         else:
             path = options.model_parameter_path+file+"_basic.pth"
     else:
@@ -202,6 +202,58 @@ def load_train_info(name):
             data.append([row[0], row[1]])
     return data
 
+def check_fcm_info(dataset):
+    if options.tokenizer.fuzzy:
+        info_path = options.base_path+'output/fuzzys2s/'+ dataset+'_'+str(options.tokenizer.fuzzy_rule_num)+'_rule_'+str(options.rule_num)+'_rule_cluster_info.csv'
+    else :
+        info_path = options.base_path+'output/fuzzys2s/'+ dataset+'_0_rule_'+str(options.rule_num)+'_rule_cluster_info.csv'
+    if os.path.exists(info_path):
+        logger.info('find %s fcm info' %(dataset))
+        return True
+    else:
+        return False
+
+def save_fcm_info(dataset, centers, sigma):
+    if options.tokenizer.fuzzy:
+        info_path = options.base_path+'output/fuzzys2s/'+ dataset+'_'+str(options.tokenizer.fuzzy_rule_num)+'_rule_'+str(options.rule_num)+'_rule_cluster_info.csv'
+    else :
+        info_path = options.base_path+'output/fuzzys2s/'+ dataset+'_0_rule_'+str(options.rule_num)+'_rule_cluster_info.csv'
+    headers = ['center_x', 'center_y', 'sigma_x', 'sigma_y']
+    rows = np.empty((len(centers), 4)).tolist()
+    for i in range(len(rows)):
+        rows[i][0] = centers[i][0]
+        rows[i][1] = centers[i][1]
+        rows[i][2] = sigma[i][0]
+        rows[i][3] = sigma[i][1]
+    with open(info_path, 'w', encoding='utf-8', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(headers)
+        writer.writerows(rows)
+    logger.info('save %s fcm info' %(dataset))
+
+def load_fcm_info(dataset):
+    if options.tokenizer.fuzzy:
+        info_path = options.base_path+'output/fuzzys2s/'+ dataset+'_'+str(options.tokenizer.fuzzy_rule_num)+'_rule_'+str(options.rule_num)+'_rule_cluster_info.csv'
+    else :
+        info_path = options.base_path+'output/fuzzys2s/'+ dataset+'_0_rule_'+str(options.rule_num)+'_rule_cluster_info.csv'
+    centers = []
+    sigma = []
+    with open(info_path, encoding='utf-8') as f:
+        reader = csv.reader(f)
+        headers = next(reader)
+        # print(headers)
+        for row in reader:
+            centers.append([float(row[0]), float(row[1])])
+            sigma.append([float(row[2]), float(row[3])])
+    centers = torch.Tensor(centers).to(options.device)
+    sigma = torch.Tensor(sigma).to(options.device)
+    rule_num = options.rule_num
+    src_center = centers[:rule_num]
+    src_sigma = sigma[:rule_num]
+    tgt_center = centers[rule_num:]
+    tgt_sigma = sigma[rule_num:]
+    logger.info('load %s fcm info' %(dataset))
+    return src_center, src_sigma, tgt_center, tgt_sigma
 
 def tensor2string(input_lang, source):
    output =  [input_lang.index2word[idx.item()] for idx in source]
@@ -286,6 +338,7 @@ def predict(model, test_data, vocab_src, vocab_tgt, evaluator):
         evaluator.calc_smape(predict_idx_list , target_idx_list)
         evaluator.calc_sen_bleu(candidate=predict_string, reference=target_string)
         evaluator.calc_sacre_bleu(candidate=predict_string, reference=target_string)
+        evaluator.calc_google_bleu(candidate=predict_string, reference=target_string)
         evaluator.calc_chrf2(candidate=predict_string, reference=target_string)
         evaluator.calc_ter(candidate=predict_string, reference=target_string)
         evaluator.calc_rouge(prediction=predict_string, reference=target_string)
@@ -423,6 +476,8 @@ def train(model, model_name, dataset_name, train_data, valid_data, test_data, vo
     result['model_name'] = model_name
     result['dataset_name'] = dataset_name
     result['epoch'] = epoch_num
+    result['tokenizer_rule'] = options.tokenizer.fuzzy_rule_num
+    result['s2s_rule'] = options.rule_num
     logger.info("[%s-%s]acc: %.2f, sen_bleu: %.2f, meteor: %.2f" %(result['model_name'],result['dataset_name'] ,result['acc'], result['sen_bleu'], result['meteor']))
     logger.info("[ablation]fuzzy tokenizer: %s, fuzzy vae: %s" %(str(options.ablation.fuzzy_tokenizer), str(options.ablation.fuzzy_vae)))
     return result
@@ -433,11 +488,17 @@ def s2s_task(dataset_name, tokenizer, pretrain_used=False, continual_learning=Fa
     logger.info('model %s on dataset %s start...' %(model_name, dataset_name))
     setup_seed(options.seed_id)
     train_data, valid_data, test_data, vocab_src, vocab_tgt = read_data(dataset_name, tokenizer)
-    src_sen_feature_map, tgt_sen_feature_map = combine_sen_feature_map(train_data,vocab_src, vocab_tgt)
-    logger.info("src token clustering")
-    center_src,sigma_src = fcm(src_sen_feature_map, cluster_num= options.rule_num, h= options.h)
-    logger.info("tgt token clustering")
-    center_tgt,sigma_tgt = fcm(tgt_sen_feature_map, cluster_num= options.rule_num, h= options.h)
+    if check_fcm_info(dataset_name):
+        center_src,sigma_src,center_tgt,sigma_tgt = load_fcm_info(dataset_name)
+    else:
+        src_sen_feature_map, tgt_sen_feature_map = combine_sen_feature_map(train_data,vocab_src, vocab_tgt)
+        logger.info("src token clustering")
+        center_src,sigma_src = fcm(src_sen_feature_map, cluster_num= options.rule_num, h= options.h)
+        logger.info("tgt token clustering")
+        center_tgt,sigma_tgt = fcm(tgt_sen_feature_map, cluster_num= options.rule_num, h= options.h)
+        centers = torch.cat((center_src, center_tgt), dim=0).tolist()
+        sigma = torch.cat((sigma_src, sigma_tgt), dim=0).tolist()
+        save_fcm_info(dataset_name, centers, sigma)
     trans_model = TransformerModel(vocab_src.n_words,
                              vocab_tgt.n_words,
                              options.trans.embedding_dim,
@@ -1066,10 +1127,10 @@ def pegasus_x_task(model_name, dataset_name, pretrain_used=True, fine_tuning=Fal
 
 
 def run():
-    # datasets =['opus_euconst', 'tatoeba','opus100','wmt14', 'ubuntu']
+    # datasets =['opus_euconst', 'tatoeba','wmt14', 'ubuntu']
     # datasets =['hearthstone', 'magic', 'geo',  'spider']
     # datasets =['cnn_dailymail', 'samsum',  'billsum', 'xlsum']
-    datasets= ['hearthstone']
+    datasets= ['wmt14']
     results = []
     for dataset in datasets:
         if options.ablation.fuzzy_tokenizer:
@@ -1095,7 +1156,9 @@ def run():
         # results.append(result)
         # result = trans_task(dataset, tokenizer,pretrain_used=False)
         # results.append(result)
-        result = s2s_task(dataset, tokenizer,pretrain_used=False)
+        # for i in range(10):
+        #     options.rule_num = i+ 1
+        result = s2s_task(dataset, tokenizer,pretrain_used=True)
         results.append(result)
         # result = s2s_b_task(dataset, tokenizer,pretrain_used=False)
         # results.append(result)
@@ -1127,8 +1190,16 @@ def run():
         if 'epoch' in result:
             epoch = result['epoch']
         else:
-            epoch = -1
-        logger.info("epoch: %d, embedding: %d, rule_num: %d, fuzzy_rule_num:%d" %(epoch, options.trans.embedding_dim, options.rule_num, options.tokenizer.fuzzy_rule_num))
+            epoch = 0
+        if 's2s_rule' in result:
+            s2s_rule = result['s2s_rule']
+        else:
+            s2s_rule = 0
+        if 'tokenizer_rule' in result:
+            tokenizer_rule = result['tokenizer_rule']
+        else:
+            tokenizer_rule = 0
+        logger.info("epoch: %d, embedding: %d, tokenizer_rule: %d, s2s_rule:%d" %(epoch, options.trans.embedding_dim, tokenizer_rule, s2s_rule))
         logger.info("ablation fuzzy_tokenizer: %s, fuzzy_vae: %s" %(str(options.ablation.fuzzy_tokenizer), str(options.ablation.fuzzy_vae)))
         logger.info("model: %s, datset: %s, acc   : %.2f, sen_bleu: %.2f" %(result['model_name'], result['dataset_name'], result['acc'], result['sen_bleu']))
         logger.info("model: %s, datset: %s, sacre_bleu: %.2f, google_bleu: %.2f" %(result['model_name'], result['dataset_name'], result['sacre_bleu'], result['google_bleu']))
