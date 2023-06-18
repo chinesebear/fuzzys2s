@@ -98,7 +98,7 @@ def insert_sos(sentence):
 
 def gen_token_vectors(vocab_src, vocab_tgt, tokens):
     token_vectors =np.empty([len(tokens),2]).tolist()
-    for i in tqdm(len(tokens),'token vector'):
+    for i in tqdm(range(len(tokens)),'token vector'):
         row = tokens[i]
         src = [vocab_src.word2index[word]  for word in row[0]]
         tgt = [vocab_tgt.word2index[word]  for word in row[1]]

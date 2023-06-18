@@ -508,7 +508,7 @@ def s2s_task(dataset_name, tokenizer, pretrain_used=False, continual_learning=Fa
                              options.trans.drop_out).to(options.device)
     loadmodel(trans_model, 'transformer-'+dataset_name)
     model = FuzzyS2S(vocab_src, vocab_tgt, options.feature_num, options.rule_num, center_src, sigma_src, center_tgt, sigma_tgt, trans_model).to(options.device)
-    result = train(model, model_name, dataset_name, train_data, valid_data, test_data, vocab_src, vocab_tgt, pretrain_used, continual_learning,epoch_num=1)
+    result = train(model, model_name, dataset_name, train_data, valid_data, test_data, vocab_src, vocab_tgt, pretrain_used, continual_learning,epoch_num=3)
     logger.remove(log_file)
     return result
 
@@ -564,7 +564,7 @@ def trans_task(dataset_name, tokenizer, pretrain_used=False, continual_learning=
                              options.trans.hidden_size,
                              options.trans.nlayer,
                              options.trans.drop_out).to(options.device)
-    result = train(model, model_name, dataset_name, train_data, valid_data, test_data, vocab_src, vocab_tgt, pretrain_used, continual_learning, epoch_num=10)
+    result = train(model, model_name, dataset_name, train_data, valid_data, test_data, vocab_src, vocab_tgt, pretrain_used, continual_learning, epoch_num=20)
     logger.remove(log_file)
     return result
 
@@ -1130,7 +1130,7 @@ def run():
     # datasets =['opus_euconst', 'tatoeba','wmt14', 'ubuntu']
     # datasets =['hearthstone', 'magic', 'geo',  'spider']
     # datasets =['cnn_dailymail', 'samsum',  'billsum', 'xlsum']
-    datasets= ['cnn_dailymail']
+    datasets= ['geo']
     results = []
     for dataset in datasets:
         if options.ablation.fuzzy_tokenizer:
@@ -1154,8 +1154,8 @@ def run():
         # results.append(result)
         # result = opus_mt_task('Helsinki-NLP/opus-mt-en-fr', dataset, fine_tuning=True)
         # results.append(result)
-        result = trans_task(dataset, tokenizer,pretrain_used=False)
-        results.append(result)
+        # result = trans_task(dataset, tokenizer,pretrain_used=False)
+        # results.append(result)
         # for i in range(10):
         #     options.rule_num = i+ 1
         result = s2s_task(dataset, tokenizer,pretrain_used=False)
