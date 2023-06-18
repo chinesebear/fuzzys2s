@@ -152,7 +152,7 @@ def savemodel(model,file):
     else:
          path = options.model_parameter_path+file+".pth"
     torch.save(model.state_dict(), path)
-    logger.info("save %s model parameters done." %(file))
+    logger.info("save %s model parameters done, %s" %(file, path))
 
 def loadmodel(model, file):
     if model.name == "fuzzys2s":
@@ -170,7 +170,7 @@ def loadmodel(model, file):
     if os.path.exists(path):
         model.load_state_dict(torch.load(path))
         model.eval()
-        logger.info("load %s model parameters done." %(file))
+        logger.info("load %s model parameters done, %s." %(file, path))
 
 def save_train_info(name, data, attach=False):
     logger.info("save %s train info..." %(name))
@@ -508,7 +508,7 @@ def s2s_task(dataset_name, tokenizer, pretrain_used=False, continual_learning=Fa
                              options.trans.drop_out).to(options.device)
     loadmodel(trans_model, 'transformer-'+dataset_name)
     model = FuzzyS2S(vocab_src, vocab_tgt, options.feature_num, options.rule_num, center_src, sigma_src, center_tgt, sigma_tgt, trans_model).to(options.device)
-    result = train(model, model_name, dataset_name, train_data, valid_data, test_data, vocab_src, vocab_tgt, pretrain_used, continual_learning,epoch_num=3)
+    result = train(model, model_name, dataset_name, train_data, valid_data, test_data, vocab_src, vocab_tgt, pretrain_used, continual_learning,epoch_num=1)
     logger.remove(log_file)
     return result
 
@@ -1130,7 +1130,7 @@ def run():
     # datasets =['opus_euconst', 'tatoeba','wmt14', 'ubuntu']
     # datasets =['hearthstone', 'magic', 'geo',  'spider']
     # datasets =['cnn_dailymail', 'samsum',  'billsum', 'xlsum']
-    datasets= ['geo']
+    datasets= ['samsum']
     results = []
     for dataset in datasets:
         if options.ablation.fuzzy_tokenizer:
@@ -1156,10 +1156,12 @@ def run():
         # results.append(result)
         # result = trans_task(dataset, tokenizer,pretrain_used=False)
         # results.append(result)
-        # for i in range(10):
-        #     options.rule_num = i+ 1
-        result = s2s_task(dataset, tokenizer,pretrain_used=False)
-        results.append(result)
+        for i in range(10):
+            options.tokenizer.fuzzy_rule_num = i+ 1
+            result = trans_task(dataset, tokenizer,pretrain_used=False)
+            results.append(result)
+            result = s2s_task(dataset, tokenizer,pretrain_used=False)
+            results.append(result)
         # result = s2s_b_task(dataset, tokenizer,pretrain_used=False)
         # results.append(result)
         # result = rnn_task(dataset, tokenizer,pretrain_used=False)

@@ -315,15 +315,15 @@ def read_hearthstone_data(tokenizer=None, sen_out=False):
     train_data=[]
     valid_data=[]
     test_data=[]
-    for src, tgt in train_lines:
+    for src, tgt in tqdm(train_lines):
         src_tokens = tokenizer(src)
         tgt_tokens = tokenizer(tgt)
         train_data.append([src_tokens, tgt_tokens])
-    for src, tgt in valid_lines:
+    for src, tgt in tqdm(valid_lines):
         src_tokens = tokenizer(src)
         tgt_tokens = tokenizer(tgt)
         valid_data.append([src_tokens, tgt_tokens])
-    for src, tgt in test_lines:
+    for src, tgt in tqdm(test_lines):
         src_tokens = tokenizer(src)
         tgt_tokens = tokenizer(tgt)
         test_data.append([src_tokens, tgt_tokens])
@@ -506,7 +506,7 @@ def read_opus_euconst_data(tokenizer=None, sen_out=False):
     train_raw_data = dataset['train']
     train_iter = iter(train_raw_data)
     train_data = np.empty([train_len], dtype=int).tolist()
-    for i in range(train_len):
+    for i in tqdm(range(train_len)):
         data = next(train_iter)
         src = data['translation'][src_lang]
         tgt = data['translation'][tgt_lang]
