@@ -53,7 +53,7 @@ options.tok = tok
 
 tokenizer = Options("tokenizer")
 tokenizer.fuzzy = True  # fuzzy tokenizer or basic
-tokenizer.fuzzy_rule_num= 3
+tokenizer.fuzzy_rule_num= 2
 tokenizer.fuzzy_feature_num = 2 #[size, count]
 options.tokenizer = tokenizer
 

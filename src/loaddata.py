@@ -97,11 +97,13 @@ def insert_sos(sentence):
     return torch.tensor(sentence).to(options.device)
 
 def gen_token_vectors(vocab_src, vocab_tgt, tokens):
-    token_vectors =[]
-    for row in tqdm(tokens,'token vector'):
+    token_vectors =np.empty([len(tokens),2]).tolist()
+    for i in tqdm(len(tokens),'token vector'):
+        row = tokens[i]
         src = [vocab_src.word2index[word]  for word in row[0]]
         tgt = [vocab_tgt.word2index[word]  for word in row[1]]
-        token_vectors.append([src, tgt])
+        token_vectors[i][0] = src
+        token_vectors[i][1] = tgt
     return token_vectors
 
 def read_raw_tokens(dataset, src_lang, tgt_lang, tokenizer, sen_out=False):

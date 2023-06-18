@@ -359,11 +359,28 @@ def token_cluster(tokens, rule_num):
         vocab.addTokens(data[0])
         vocab.addTokens(data[1])
     token_features = []
-    for data in tqdm(tokens, 'token featurs'):
-        features = gen_token_features(data[0], vocab)
-        token_features.extend(features)
-        features = gen_token_features(data[1], vocab)
-        token_features.extend(features)
+    if len(tokens) < 20000:
+        for i in tqdm(range(len(tokens)), 'token featurs'):
+            data = tokens[i]
+            features = gen_token_features(data[0], vocab)
+            token_features.extend(features)
+            features = gen_token_features(data[1], vocab)
+            token_features.extend(features)
+    else:
+        tmp_features = []
+        part_num = 1000
+        part = int(len(tokens) / part_num)
+        for i in tqdm(range(len(tokens)), 'token features'):
+            data = tokens[i]
+            features = gen_token_features(data[0], vocab)
+            tmp_features.extend(features)
+            features = gen_token_features(data[1], vocab)
+            tmp_features.extend(features)
+            if i % part == 0:
+                data = np.array(tmp_features)
+                centers,_ = fcm_cluster(data, cluster_num=rule_num, h=options.h)
+                token_features.extend(centers)
+                tmp_features = []
     token_features = np.array(token_features)
     centers,sigma = fcm_cluster(token_features, cluster_num=rule_num, h=options.h)
     return centers, sigma, vocab
