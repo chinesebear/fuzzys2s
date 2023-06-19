@@ -1130,7 +1130,7 @@ def run():
     # datasets =['opus_euconst', 'tatoeba','wmt14', 'ubuntu']
     # datasets =['hearthstone', 'magic', 'geo',  'spider']
     # datasets =['cnn_dailymail', 'samsum',  'billsum', 'xlsum']
-    datasets= ['samsum']
+    datasets= ['spider']
     results = []
     for dataset in datasets:
         if options.ablation.fuzzy_tokenizer:
@@ -1156,12 +1156,10 @@ def run():
         # results.append(result)
         # result = trans_task(dataset, tokenizer,pretrain_used=False)
         # results.append(result)
-        for i in range(10):
-            options.tokenizer.fuzzy_rule_num = i+ 1
-            result = trans_task(dataset, tokenizer,pretrain_used=False)
-            results.append(result)
-            result = s2s_task(dataset, tokenizer,pretrain_used=False)
-            results.append(result)
+        # for i in range(10):
+        #     options.tokenizer.fuzzy_rule_num = i+ 1
+        result = s2s_task(dataset, tokenizer,pretrain_used=True)
+        results.append(result)
         # result = s2s_b_task(dataset, tokenizer,pretrain_used=False)
         # results.append(result)
         # result = rnn_task(dataset, tokenizer,pretrain_used=False)
