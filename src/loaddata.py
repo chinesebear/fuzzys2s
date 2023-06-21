@@ -688,7 +688,7 @@ def read_billsum_data(tokenizer=None, sen_out=False):
     train_data = []
     test_data = []
     with open(train_path, "r", encoding="utf8") as f:
-        for line in jsonlines.Reader(f):
+        for line in tqdm(jsonlines.Reader(f)):
             src = line['text']
             tgt = line['summary']
             if sen_out==False:
@@ -697,7 +697,7 @@ def read_billsum_data(tokenizer=None, sen_out=False):
             train_data.append([src, tgt])
         f.close()
     with open(test_path, "r", encoding="utf8") as f:
-        for line in jsonlines.Reader(f):
+        for line in tqdm(jsonlines.Reader(f)):
             src = line['text']
             tgt = line['summary']
             if sen_out == False:

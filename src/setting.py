@@ -22,7 +22,7 @@ options.size_max = 50
 options.seq_max = 2000
 options.epoch= 20
 options.feature_num = 2 # [len, HF]
-options.rule_num =6  ## fuzzys2s rule num
+options.rule_num =3  ## fuzzys2s rule num
 options.cluster_num = options.rule_num
 options.iter_num = 150
 options.h = 10.0
@@ -52,7 +52,7 @@ tok.test_len = 1000
 options.tok = tok
 
 tokenizer = Options("tokenizer")
-tokenizer.fuzzy = False  # fuzzy tokenizer or basic
+tokenizer.fuzzy = True  # fuzzy tokenizer or basic
 tokenizer.fuzzy_rule_num= 3
 tokenizer.fuzzy_feature_num = 2 #[size, count]
 options.tokenizer = tokenizer
