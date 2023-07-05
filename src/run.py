@@ -583,8 +583,10 @@ def t5_task(model_name, dataset_name, pretrain_used=True, fine_tuning=False, tas
     evaluator = Evaluator()
     if fine_tuning:
         model_path = options.base_path+'output/finetune/'+model_name+'-'+dataset_name
-        # model_finetune(model,model_path, tokenizer,task_prefix, train_sen_pairs, valid_sen_pairs[:10],epoch_num=10)
-        model_finetune2(model,model_path, tokenizer,task_prefix, train_sen_pairs, valid_sen_pairs[:10],
+        if model_name.find('large') == -1:
+            model_finetune(model,model_path, tokenizer,task_prefix, train_sen_pairs, valid_sen_pairs[:10],epoch_num=10)
+        else:
+            model_finetune2(model,model_path, tokenizer,task_prefix, train_sen_pairs, valid_sen_pairs[:10],
                         max_src_length=512,
                         max_tgt_length=512,
                         epoch_num=10)
@@ -783,10 +785,17 @@ def codet5_task(model_name, dataset_name, pretrain_used=True):
     # tokenizer.add_special_tokens({'pad_token': '<pad>', 'eos_token': '<eos>', 'bos_token': '<bos>', 'unk_token': '<unk>'})
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name).to(options.device)
     model_param(model)
+
     # # fine tuning with dataset
     task_prefix = 'Code Generation: '
     model_path = options.base_path+'output/finetune/'+model_name+'-'+dataset_name
-    model_finetune(model,model_path, tokenizer,task_prefix, train_sen_pairs, valid_sen_pairs[:10],epoch_num=1)
+    if model_name.find('large') == -1:
+        model_finetune(model,model_path, tokenizer,task_prefix, train_sen_pairs, valid_sen_pairs[:10],epoch_num=4)
+    else:
+        model_finetune2(model,model_path, tokenizer,task_prefix, train_sen_pairs, valid_sen_pairs[:10],
+                    max_src_length=512,
+                    max_tgt_length=512,
+                    epoch_num=4)
 
     # max_source_length = 512
     max_target_length = 1024
@@ -1130,7 +1139,7 @@ def run():
     # datasets =['opus_euconst', 'tatoeba','wmt14', 'ubuntu']
     # datasets =['hearthstone', 'magic', 'geo',  'spider']
     # datasets =['cnn_dailymail', 'samsum',  'billsum', 'xlsum']
-    datasets= ['billsum']
+    datasets= ['spider']
     results = []
     for dataset in datasets:
         if options.ablation.fuzzy_tokenizer:
@@ -1154,22 +1163,22 @@ def run():
         # results.append(result)
         # result = opus_mt_task('Helsinki-NLP/opus-mt-en-fr', dataset, fine_tuning=True)
         # results.append(result)
-        result = trans_task(dataset, tokenizer,pretrain_used=False)
-        results.append(result)
+        # result = trans_task(dataset, tokenizer,pretrain_used=False)
+        # results.append(result)
         # for i in range(10):
         #     options.tokenizer.fuzzy_rule_num = i+ 1
-        result = s2s_task(dataset, tokenizer,pretrain_used=False)
-        results.append(result)
+        # result = s2s_task(dataset, tokenizer,pretrain_used=False)
+        # results.append(result)
         # result = s2s_b_task(dataset, tokenizer,pretrain_used=False)
         # results.append(result)
         # result = rnn_task(dataset, tokenizer,pretrain_used=False)
         # results.append(result)
-        # result = codet5_task('Salesforce/codet5-small',dataset)
-        # results.append(result)
-        # result = codet5_task('Salesforce/codet5-base',dataset)
-        # results.append(result)
-        # result = codet5_task('Salesforce/codet5-large',dataset)
-        # results.append(result)
+        result = codet5_task('Salesforce/codet5-small',dataset)
+        results.append(result)
+        result = codet5_task('Salesforce/codet5-base',dataset)
+        results.append(result)
+        result = codet5_task('Salesforce/codet5-large',dataset)
+        results.append(result)
         # result = codegen_task('Salesforce/codegen-350M-mono',dataset)
         # results.append(result)
         # result = codebert_task('microsoft/codebert-base-mlm',dataset)
