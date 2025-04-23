@@ -21,10 +21,11 @@ We proposed a novel framework (**Generative Fuzzy System**, **GenFS**) combining
 <img src="./doc/png/genfs.png" width=60% />
 </p>
 
-- [x] Fuzzys2s for text sequence **in this paper**;
-- [ ] FuzzyDiffusion for image modal;
-- [ ] FuzzyMusic for audio modal;
-- [ ] FuzzyAgents for multimodal (text, image, audio);
+A series of works based on GenFS:
+- [x] FuzzyS2S (**text** generation), *Generative Fuzzy System for Sequence-to-Sequence Learning*.
+- [ ] FuzzyDiffusion (**image** generation).
+- [ ] FuzzyMusic (**audio** generation).
+- [ ] FuzzyAgents (**multimodal** generation includeing text, image, audio).
 
 
 
@@ -33,9 +34,9 @@ FuzzyS2S is an end-to-end GenFS-based model for sequence-to-sequence learning.
 <p align="center">
 <img src="./doc/png/fuzzys2s.png" width=100%/>
 </p>
-The Figure is the structure of FuzzyS2S, $TF^k$ is the Transformer processing unit of the kth rule consequent, $s_x$ is the input sequence, and $s_y$ is the target sequence. the Preprocess module named Sequence to Vector is to implement the conversion from sequences to word vectors, and the Postprocess module named Embedding to Sequence is to convert the decoded word embeddings into the target sequences.
+The Figure is the structure of FuzzyS2S, TF<sub>k</sub> is the Transformer processing unit of the kth rule consequent, s<sub>x</sub> is the input sequence, and s<sub>y</sub> is the target sequence. the Preprocess module named Sequence to Vector is to implement the conversion from sequences to word vectors, and the Postprocess module named Embedding to Sequence is to convert the decoded word embeddings into the target sequences.
 
-[Fuzzy Tokenizer] we propose a specific multi-scale tokenizer, called fuzzy tokenizer. The fuzzy tokenizer is a fuzzy system based on multi-scale sub-word tokenizers that enables the adaptive slicing of words at different scales.
+we propose a specific multi-scale tokenizer, called fuzzy tokenizer. The fuzzy tokenizer is a fuzzy system based on multi-scale sub-word tokenizers that enables the adaptive slicing of words at different scales.
 
 ## Datasets
 
