@@ -18,10 +18,11 @@ Generative Fuzzy System for Sequence-to-Sequence Learning
 We proposed a novel framework (**Generative Fuzzy System**, **GenFS**) combining fuzzy systems and generative models, with the target of processing multimodal data generation.
 
 <p align="center">
-<img src="./doc/png/genfs.png" width=60% />
+<img src="./doc/png/genfs.png" width=60% /> <br>
+Figure 1. Generative Fuzzy System (GenFS)
 </p>
 
-A series of works based on GenFS:
+**A series of works based on GenFS:**
 - [x] FuzzyS2S (**text** generation), *Generative Fuzzy System for Sequence-to-Sequence Learning*.
 - [ ] FuzzyDiffusion (**image** generation).
 - [ ] FuzzyMusic (**audio** generation).
@@ -29,12 +30,13 @@ A series of works based on GenFS:
 
 
 
-## GenFS-based FuzzyS2S
+## FuzzyS2S
 FuzzyS2S is an end-to-end GenFS-based model for sequence-to-sequence learning.
 <p align="center">
-<img src="./doc/png/fuzzys2s.png" width=100%/>
+<img src="./doc/png/fuzzys2s.png" width=100%/> <br>
+Figure 2. Structure of FuzzyS2S, TF<sub>k</sub> is the Transformer processing unit of the kth rule consequent, s<sub>x</sub> is the input sequence, and s<sub>y</sub> is the target sequence. the Preprocess module named Sequence to Vector is to implement the conversion from sequences to word vectors, and the Postprocess module named Embedding to Sequence is to convert the decoded word embeddings into the target sequences.
 </p>
-The Figure is the structure of FuzzyS2S, TF<sub>k</sub> is the Transformer processing unit of the kth rule consequent, s<sub>x</sub> is the input sequence, and s<sub>y</sub> is the target sequence. the Preprocess module named Sequence to Vector is to implement the conversion from sequences to word vectors, and the Postprocess module named Embedding to Sequence is to convert the decoded word embeddings into the target sequences.
+
 
 we propose a specific multi-scale tokenizer, called fuzzy tokenizer. The fuzzy tokenizer is a fuzzy system based on multi-scale sub-word tokenizers that enables the adaptive slicing of words at different scales.
 
