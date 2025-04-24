@@ -23,8 +23,8 @@ Figure 1. Generative Fuzzy System (GenFS)
 </p>
 
 **A series of works based on GenFS:**
-- [x] FuzzyS2S (**text** generation), *Generative Fuzzy System for Sequence-to-Sequence Learning*.
-- [ ] FuzzyDiffusion (**image** generation).
+- [x] FuzzyS2S (**text** generation), *Generative Fuzzy System for Sequence-to-Sequence Learning* (revise and resubmit).
+- [x] FuzzyDiffusion (**image** generation), *Generative Fuzzy Rule Guided Latent Space Multi-Path Diffusion Model* (under submission).
 - [ ] FuzzyMusic (**audio** generation).
 - [ ] FuzzyAgents (**multimodal** generation includeing text, image, audio).
 
@@ -176,5 +176,5 @@ log output:
 2025-04-24 00:36:58.330 | INFO     | run:model_info:45 - total parameters: 137067446, trainable  parameters: 137067446 
 test data:   1%█▏          | 23/3003 [00:29<49:09,  1.01it/s]
 ```
-
+If you want some pre-trained models of fuzzys2s, feel free to email me.
 
