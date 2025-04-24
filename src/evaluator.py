@@ -181,9 +181,9 @@ class MetricsValue(nn.Module):
 class Evaluator(nn.Module):
     def __init__(self):
         super(Evaluator, self).__init__()
-        metrics_path = options.evaluate_path+'metrics/'
+        metrics_path = ""#options.evaluate_path+'metrics/'
         self.google_bleu_metrics = evaluate.load(metrics_path+'google_bleu')
-        # self.bleu_metrics = evaluate.load(metrics_path+'bleu')
+        self.bleu_metrics = evaluate.load(metrics_path+'bleu')
         self.meteor_metrics = evaluate.load(metrics_path+'meteor')
         self.rouge_metrics = evaluate.load(metrics_path+'rouge')
         self.accuracy_metrics = evaluate.load(metrics_path+"accuracy")
@@ -354,5 +354,6 @@ def run():
     results = metrics.average(i)
     print(results)
     return 0
-
-# run()
+if __name__ == "__main__":
+    run();
+    print("done")

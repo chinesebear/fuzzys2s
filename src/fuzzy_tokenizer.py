@@ -549,5 +549,6 @@ def run():
     #     print(out)
     train_tokenizers()
     return 0
-
-# run()
+if __name__ == "__main__":
+    train_tokenizers()
+    logger.info("Fuzzy Tokenizer train done")

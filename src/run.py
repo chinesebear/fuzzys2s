@@ -1,25 +1,27 @@
-from torch import nn
-import torch
-import torch.nn.functional as F
-from torchtext.data import get_tokenizer
 import datetime
 import numpy as np
 import random
 import math
+import csv
+import os
+from torch import nn
+import torch
+import torch.nn.functional as F
+from torchtext.data import get_tokenizer
 from loguru import logger
+from tqdm import tqdm
+from evaluator import Evaluator,MetricsValue
+# from transformers import T5Tokenizer, T5ForConditionalGeneration,MT5ForConditionalGeneration, AutoTokenizer,\
+#     BartForConditionalGeneration, BartTokenizer,AutoModel,AutoModelForSeq2SeqLM,TrainingArguments,Trainer, \
+#     Seq2SeqTrainingArguments, Seq2SeqTrainer,AutoModelForCausalLM,CodeGenModel,RobertaForCausalLM,\
+#     PegasusForConditionalGeneration, PegasusTokenizer, PegasusXForConditionalGeneration
+from datasets import load_dataset,load_from_disk,Dataset
+
 from model import FuzzyS2S,TransformerModel,RnnModel, FuzzyS2S_B
 from loaddata import read_data,fcm, gen_sen_feature_map,combine_sen_feature_map,insert_sos,attach_eos,get_base_tokenizer
 from setting import options, setting_info
-import os
-from evaluator import Evaluator,MetricsValue
-from tqdm import tqdm
-from transformers import T5Tokenizer, T5ForConditionalGeneration,MT5ForConditionalGeneration, AutoTokenizer,\
-    BartForConditionalGeneration, BartTokenizer,AutoModel,AutoModelForSeq2SeqLM,TrainingArguments,Trainer, \
-    Seq2SeqTrainingArguments, Seq2SeqTrainer,AutoModelForCausalLM,CodeGenModel,RobertaForCausalLM,\
-    PegasusForConditionalGeneration, PegasusTokenizer, PegasusXForConditionalGeneration
-from datasets import load_dataset,load_from_disk,Dataset
 from fuzzy_tokenizer import get_fuzzy_tokenizer
-import csv
+
 
 def setup_seed(seed):
     # https://zhuanlan.zhihu.com/p/462570775
@@ -168,7 +170,7 @@ def loadmodel(model, file):
     else:
          path = options.model_parameter_path+file+".pth"
     if os.path.exists(path):
-        model.load_state_dict(torch.load(path))
+        model.load_state_dict(torch.load(path, map_location=options.device))
         model.eval()
         logger.info("load %s model parameters done, %s." %(file, path))
 
@@ -1135,11 +1137,11 @@ def pegasus_x_task(model_name, dataset_name, pretrain_used=True, fine_tuning=Fal
     return result
 
 
-def run():
+def run(pretrain_used=False, datasets= ['wmt14']):
     # datasets =['opus_euconst', 'tatoeba','wmt14', 'ubuntu']
     # datasets =['hearthstone', 'magic', 'geo',  'spider']
     # datasets =['cnn_dailymail', 'samsum',  'billsum', 'xlsum']
-    datasets= ['spider']
+    # datasets= ['wmt14']
     results = []
     for dataset in datasets:
         if options.ablation.fuzzy_tokenizer:
@@ -1167,18 +1169,18 @@ def run():
         # results.append(result)
         # for i in range(10):
         #     options.tokenizer.fuzzy_rule_num = i+ 1
-        # result = s2s_task(dataset, tokenizer,pretrain_used=False)
-        # results.append(result)
+        result = s2s_task(dataset, tokenizer,pretrain_used=pretrain_used)
+        results.append(result)
         # result = s2s_b_task(dataset, tokenizer,pretrain_used=False)
         # results.append(result)
         # result = rnn_task(dataset, tokenizer,pretrain_used=False)
         # results.append(result)
-        result = codet5_task('Salesforce/codet5-small',dataset)
-        results.append(result)
-        result = codet5_task('Salesforce/codet5-base',dataset)
-        results.append(result)
-        result = codet5_task('Salesforce/codet5-large',dataset)
-        results.append(result)
+        # result = codet5_task('Salesforce/codet5-small',dataset)
+        # results.append(result)
+        # result = codet5_task('Salesforce/codet5-base',dataset)
+        # results.append(result)
+        # result = codet5_task('Salesforce/codet5-large',dataset)
+        # results.append(result)
         # result = codegen_task('Salesforce/codegen-350M-mono',dataset)
         # results.append(result)
         # result = codebert_task('microsoft/codebert-base-mlm',dataset)
@@ -1221,4 +1223,7 @@ def run():
         logger.info("model: %s, datset: %s, smape : %.2f, meteor: %.2f" %(result['model_name'], result['dataset_name'], result['smape'], result['meteor']))
     logger.remove(log_file)
     return 0
-run()
+if __name__ == '__main__':
+    run();
+    # run(pretrain_used=False, datasets= ['opus_euconst', 'tatoeba','wmt14', 'ubuntu']):
+    print("done")

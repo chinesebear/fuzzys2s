@@ -1,13 +1,12 @@
 import csv
 import os
-from fcmeans import FCM
+# from fcmeans import FCM
 import numpy as np
 import torch
 import json
 from torchtext.data import get_tokenizer
 from transformers import AutoTokenizer
 from loguru import logger
-from setting import options,Options
 from datasets import load_dataset,load_from_disk
 from tokenizers import Tokenizer
 from tokenizers.models import BPE,WordPiece,Unigram
@@ -19,6 +18,9 @@ import itertools
 import pickle
 import jsonlines
 from translate.storage.tmx import tmxfile
+
+from setting import options,Options
+from utils import check_dir
 
 class Vocab:
     def __init__(self, name):
@@ -145,29 +147,29 @@ def read_raw_tokens(dataset, src_lang, tgt_lang, tokenizer, sen_out=False):
 def download_dataset():
     datasets = [
         ['wmt14', 'fr-en'],
-        ['wmt14', 'de-en'],
-        ['wmt16', 'de-en'],
+        # ['wmt14', 'de-en'],
+        # ['wmt16', 'de-en'],
         # ['wmt19', 'de-en'],
         # ['lambada',''],
         ['spider', ''],
-        ['htriedman/wikisql', ''],
+        # ['htriedman/wikisql', ''],
         ['dvitel/geo', ''],
-        ['fathyshalab/atis_intents', ''],
-        ['AhmedSSoliman/DJANGO', ''],
-        ['neulab/conala', ''],
-        ['opus100', 'en-fr'],
+        # ['fathyshalab/atis_intents', ''],
+        # ['AhmedSSoliman/DJANGO', ''],
+        # ['neulab/conala', ''],
+        # ['opus100', 'en-fr'],
         ["opus_euconst",'en-fr'],
         ["cnn_dailymail", '1.0.0'],
         # ["xsum", ''],
         ["samsum", ''],
-        ["gem", 'common_gen'],
+        # ["gem", 'common_gen'],
         ["GEM/xlsum", 'french'],
         ['xsum', ''],
     ]
     for info in datasets:
         name = info[0]
         subpath = info[1]
-        dataset_path = options.base_path+"output/"+name+"/"+subpath+"/"
+        dataset_path = options.base_path+"datasets/"+name+"/"+subpath+"/"
         if os.path.exists(dataset_path):
             dataset = load_from_disk(dataset_path)
         else :
@@ -176,10 +178,10 @@ def download_dataset():
             else:
                 dataset = load_dataset(name,subpath)
             dataset.save_to_disk(dataset_path)
-        print(name,'-',subpath,'done')
+        logger.info(f"{name} - {subpath} done")
 
 def read_dataset(name, subpath):
-    dataset_path = options.base_path+"output/"+name+"/"+subpath+"/"
+    dataset_path = options.base_path+"datasets/"+name+"/"+subpath+"/"
     if os.path.exists(dataset_path):
         dataset = load_from_disk(dataset_path)
     else :
@@ -683,8 +685,8 @@ def read_gem_data(tokenizer=None, sen_out=False):
 def read_billsum_data(tokenizer=None, sen_out=False):
     logger.info("read billsum data")
     logger.info("read raw tokens")
-    train_path = options.base_path + 'output/billsum_v4_1/us_train_data_final_OFFICIAL.jsonl'
-    test_path =  options.base_path + 'output/billsum_v4_1/us_test_data_final_OFFICIAL.jsonl'
+    train_path = options.base_path + 'datasets/billsum_v4_1/us_train_data_final_OFFICIAL.jsonl'
+    test_path =  options.base_path + 'datasets/billsum_v4_1/us_test_data_final_OFFICIAL.jsonl'
     train_data = []
     test_data = []
     with open(train_path, "r", encoding="utf8") as f:
@@ -1187,4 +1189,12 @@ def run():
     read_data('xlsum', tokenizer)
     return 0
 
-# run()
+if __name__ == "__main__":
+    # check file
+    base_path= options.base_path
+    check_dir(base_path+'datasets/')
+    # download dataset
+    download_dataset()
+    
+    
+    

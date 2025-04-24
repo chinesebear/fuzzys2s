@@ -73,14 +73,108 @@ The datasets include three categories: machine translation, summary generation, 
 **[GEO](https://huggingface.co/datasets/DARELab/geoquery)** (Geoquery): This dataset is a standard semantic parsing benchmark test dataset containing 704 samples, which generates target code in the logical language SQL, thus evaluating the model's logical code generation capabilities.
 
 **[Spider](https://huggingface.co/datasets/xlangai/spider)**: This dataset is a large, complex cross-domain semantic parsing text-to-SQL dataset annotated by 11 Yale students. It is an important benchmarking dataset for evaluating semantic parsing capabilities, containing 10,181 questions and 5,693 unique complex SQL queries across 200 databases. 
-## Denpency
+
+## Conda Enviroment Setup
+
+``` shell
+conda create --name fuzzys2s --file ./requirements.txt
+conda activate fuzzys2s
 ```
 
+## Train
+### step1. setting
+set base_path int setting.py
+``` python
+options.base_path="/home/xxxx/fuzzys2s/"
+```
+### step2. download datasets
+start downloading datasets from remote dataset hubs.
+``` shell
+cd src
+python3 loaddata.py
+```
+log output:
+``` log
+2025-04-23 16:45:05.232 | INFO     | __main__:download_dataset:181 - wmt14 - fr-en done
+2025-04-23 16:45:05.319 | INFO     | __main__:download_dataset:181 - spider -  done
+2025-04-23 16:45:05.323 | INFO     | __main__:download_dataset:181 - dvitel/geo -  done
+2025-04-23 16:45:05.326 | INFO     | __main__:download_dataset:181 - opus_euconst - en-fr done
+2025-04-23 16:45:05.340 | INFO     | __main__:download_dataset:181 - cnn_dailymail - 1.0.0 done
+2025-04-23 16:45:05.349 | INFO     | __main__:download_dataset:181 - samsum -  done
+2025-04-23 16:45:05.358 | INFO     | __main__:download_dataset:181 - GEM/xlsum - french done
+2025-04-23 16:45:05.368 | INFO     | __main__:download_dataset:181 - xsum -  done
+...
+```
+### step3. training fuzzy tokenizer
+start training fuzzy tokenizer
+```shell
+python3 fuzzy_tokenizer.py
+```
+log output:
+```log
+2025-04-23 17:10:00.762 | INFO     | __main__:train_fuzzy_tokenizer:147 - multi-scale Tokenizer, vocab size 100000 , tokenizer found
+2025-04-23 17:10:00.762 | INFO     | __main__:train_fuzzy_tokenizer:150 - fuzzy_vs100000_tokenizer train start...
+2025-04-23 17:10:00.762 | INFO     | __main__:train_tokenizer_on_dataset:118 - train tokenizer on ubuntu, vocab size 100000
+2025-04-23 17:10:00.762 | INFO     | loaddata:read_ubuntu_data:286 - read ubuntu data
+read data: 8384it [00:00, 49627.91it/s]
+2025-04-23 17:10:00.972 | INFO     | loaddata:read_ubuntu_data:305 - dataset: ubuntu, train: 6708, valid: 838, test: 838
+2025-04-23 17:10:01.320 | INFO     | __main__:train_tokenizer_on_dataset:118 - train tokenizer on opus_euconst, vocab size 100000
+2025-04-23 17:10:01.320 | INFO     | loaddata:read_opus_euconst_data:501 - read opus_euconst data
+2025-04-23 17:10:01.327 | INFO     | loaddata:read_dataset:193 - opus_euconst-en-fr done
+2025-04-23 17:10:01.327 | INFO     | loaddata:read_opus_euconst_data:503 - read raw tokens
+2025-04-23 17:10:01.328 | INFO     | loaddata:read_opus_euconst_data:507 - dataset:opus_euconst, total: 10104
 ```
 
-## Training
+### step4. training fuzzys2s model
+
+```shell
+python3 run.py
+```
+
+log output:
+``` log
+2025-04-24 00:33:21.777 | INFO     | run:s2s_task:490 - model fuzzys2s on dataset wmt14 start...
+[W Context.cpp:70] Warning: torch.use_deterministic_algorithms is in beta, and its design and functionality may change in the future. (function operator())
+2025-04-24 00:33:21.778 | INFO     | run:setup_seed:38 - seed: 10, random:0.5714, torch random:0.4581, np random:0.7713
+2025-04-24 00:33:21.778 | INFO     | loaddata:read_wmt14_data:255 - read wmt14 data
+Loading dataset from disk: 100%| | 30/30 [00:00<00:00, 257.21it/s]
+2025-04-24 00:33:22.047 | INFO     | loaddata:read_dataset:193 - wmt14-fr-en done
+2025-04-24 00:33:22.047 | INFO     | loaddata:read_wmt14_data:259 - read raw tokens
+read train data: 100%|█████████████| 500000/500000 [00:26<00:00, 18579.35it/s]
+2025-04-24 00:33:49.236 | INFO     | loaddata:read_wmt14_data:261 - dataset: wmt14, train: 500000
+2025-04-24 00:33:49.288 | INFO     | loaddata:gen_feature_data:211 - build vocabulary
+2025-04-24 00:34:09.155 | INFO     | loaddata:gen_feature_data:217 - src vocab name:src en, size:68954
+2025-04-24 00:34:09.155 | INFO     | loaddata:gen_feature_data:218 - tgt vocab name:tgt fr, size:89270
+2025-04-24 00:34:09.155 | INFO     | loaddata:gen_feature_data:219 - generate token vectors
+token vector: 100%|█████████████| 500000/500000 [00:05<00:00, 93147.77it/s]
+2025-04-24 00:34:15.717 | INFO     | run:check_fcm_info:213 - find wmt14 fcm info
+2025-04-24 00:34:15.718 | INFO     | run:load_fcm_info:257 - load wmt14 fcm info
+2025-04-24 00:34:16.617 | INFO     | run:loadmodel:175 - load transformer-wmt14 model parameters done
+2025-04-24 00:34:57.899 | INFO     | run:model_info:41 - [model fuzzys2s]
+2025-04-24 00:34:57.899 | INFO     | run:model_info:42 - rule_num: 3, embedding: 512, h: 10.0, drop_out: 0.1, learning_rate: 0.0001
+2025-04-24 00:34:57.901 | INFO     | run:model_info:45 - total parameters: 137067446, trainable  parameters: 137067446 
+train data:   0%|        | 28/500000 [00:26<132:14:31,  1.05it/s]
+```
+default dataset is wmt14, you can add datasets into `datasets` array in run.py as follow:
+``` python
+if __name__ == '__main__':
+    # datasets =['opus_euconst', 'tatoeba','wmt14', 'ubuntu']
+    # datasets =['hearthstone', 'magic', 'geo',  'spider']
+    # datasets =['cnn_dailymail', 'samsum',  'billsum', 'xlsum']
+    run(pretrain_used=False, datasets= ['wmt14']):
+    print("done")
+```
 
 ## Test
+``` shell
+python3 test.py
+```
+log output:
+``` log
+2025-04-24 00:36:58.327 | INFO     | run:model_info:41 - [model fuzzys2s]
+2025-04-24 00:36:58.327 | INFO     | run:model_info:42 - rule_num: 3, embedding: 512, h: 10.0, drop_out: 0.1, learning_rate: 0.0001
+2025-04-24 00:36:58.330 | INFO     | run:model_info:45 - total parameters: 137067446, trainable  parameters: 137067446 
+test data:   1%█▏          | 23/3003 [00:29<49:09,  1.01it/s]
+```
 
-## Acknownledge
 
