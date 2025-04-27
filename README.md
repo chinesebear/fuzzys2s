@@ -23,10 +23,10 @@ Figure 1. Generative Fuzzy System (GenFS)
 </p>
 
 **A series of works based on GenFS:**
-- [x] FuzzyS2S (**text** generation), *Generative Fuzzy System for Sequence-to-Sequence Learning* (revise and resubmit).
-- [x] FuzzyDiffusion (**image** generation), *Generative Fuzzy Rule Guided Latent Space Multi-Path Diffusion Model* (under submission).
+- [x] FuzzyS2S (**text** generation).
+- [ ] FuzzyDiffusion (**image** generation).
 - [ ] FuzzyMusic (**audio** generation).
-- [ ] FuzzyAgents (**multimodal** generation includeing text, image, audio).
+- [ ] FuzzyAgents (**multimodal** generation).
 
 
 
