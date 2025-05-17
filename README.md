@@ -1,5 +1,5 @@
 <p align="center">
-<img src="./doc/png/logo-transparent.png" width=20% />
+<img src="doc/png/logo-transparent.png" width=20% />
 </p>
 <h1 align="center">
 Generative Fuzzy System for Sequence-to-Sequence Learning
@@ -18,7 +18,7 @@ Generative Fuzzy System for Sequence-to-Sequence Learning
 We proposed a novel framework (**Generative Fuzzy System**, **GenFS**) combining fuzzy systems and generative models, with the target of processing multimodal data generation.
 
 <p align="center">
-<img src="./doc/png/genfs.png" width=60% /> <br>
+<img src="doc/png/genfs.png" width=60% /> <br>
 Figure 1. Generative Fuzzy System (GenFS)
 </p>
 
@@ -33,7 +33,7 @@ Figure 1. Generative Fuzzy System (GenFS)
 ## FuzzyS2S
 FuzzyS2S is an end-to-end GenFS-based model for sequence-to-sequence learning.
 <p align="center">
-<img src="./doc/png/fuzzys2s.png" width=100%/> <br>
+<img src="doc/png/fuzzys2s.png" width=100%/> <br>
 Figure 2. Structure of FuzzyS2S, TF<sub>k</sub> is the Transformer processing unit of the kth rule consequent, s<sub>x</sub> is the input sequence, and s<sub>y</sub> is the target sequence. the Preprocess module named Sequence to Vector is to implement the conversion from sequences to word vectors, and the Postprocess module named Embedding to Sequence is to convert the decoded word embeddings into the target sequences.
 </p>
 
