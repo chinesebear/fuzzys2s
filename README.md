@@ -2,7 +2,7 @@
 <img src="doc/png/logo-transparent.png" width=20% />
 </p>
 <h1 align="center">
-Generative Fuzzy System for Sequence-to-Sequence Learning
+Generative Fuzzy System for Sequence-to-Sequence Learning via Rule-based Inference
 </h1>
 <p align="center">
 <img src="https://img.shields.io/badge/OS-Ubuntu22.4-blue" />
