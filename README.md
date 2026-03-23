@@ -26,7 +26,7 @@ Figure 1. Generative Fuzzy System (GenFS)
 - [x] FuzzyS2S (**text** generation).
 - [ ] FuzzyDiffusion (**image** generation).
 - [ ] FuzzyMusic (**audio** generation).
-- [ ] FuzzyAgents (**multimodal** generation).
+- [ ] FuzzyMM (**multimodal** QA).
 
 
 
@@ -178,3 +178,17 @@ test data:   1%█▏          | 23/3003 [00:29<49:09,  1.01it/s]
 ```
 If you want some pre-trained models of fuzzys2s, feel free to email me.
 
+
+**Cite Our Paper**
+```bibtex
+@article{yangGenerativeFuzzySystem2026,
+  title = {Generative Fuzzy System for Sequence-to-Sequence Learning via Rule-Based Inference},
+  author = {Yang, Hailong and Deng, Zhaohong and Zhang, Wei and Zhao, Zhuangzhuang and Wang, Guanjin and Choi, Kup-Sze},
+  year = 2026,
+  month = mar,
+  journal = {IEEE Transactions on Neural Networks and Learning Systems},
+  volume = {37},
+  number = {3},
+  pages = {1435--1448},
+}
+```
